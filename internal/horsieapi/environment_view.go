@@ -2,7 +2,7 @@
 
 package horsieapi
 
-// An environment as shown to clients.
+// A predefined environment as shown to clients.
 type EnvironmentView struct {
 	// Slug; the id of record, used in API paths.
 	Name        string `json:"name"`
@@ -13,10 +13,11 @@ type EnvironmentView struct {
 	// Repositories cloned into the runtime workspace at provision time.
 	Repos []RepoConfig `json:"repos"`
 	// Plain-text, non-sensitive env vars for the runtime. Secrets are a
-	// future, separate concept.
+	// future, separate concept. Names in the server's reserved `HORSIE_*`
+	// namespace are refused at save.
 	EnvVars []EnvVar `json:"envVars"`
-	// Setup steps the runtime executes before its message loop. Inert today:
-	// nothing provisions from an environment yet.
+	// Setup steps the runtime executes before its message loop, after the
+	// repo checkouts — a step like `make setup` needs its repo on disk.
 	Provision []ProvisionStep `json:"provision"`
 	// Unix epoch seconds.
 	CreatedAt string `json:"createdAt"`

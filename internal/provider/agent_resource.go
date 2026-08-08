@@ -29,17 +29,10 @@ type agentResource struct{ client *client.Client }
 // NewAgentResource registers `horsie_agent`.
 func NewAgentResource() resource.Resource { return &agentResource{} }
 
-type repoModel struct {
-	URL    types.String `tfsdk:"url"`
-	GitRef types.String `tfsdk:"git_ref"`
-	Dir    types.String `tfsdk:"dir"`
-}
-
 type agentModel struct {
 	Name           types.String `tfsdk:"name"`
 	Description    types.String `tfsdk:"description"`
 	Model          types.String `tfsdk:"model"`
-	Repos          []repoModel  `tfsdk:"repos"`
 	Plugins        types.List   `tfsdk:"plugins"`
 	MCPServers     types.List   `tfsdk:"mcp_servers"`
 	MemorySpaces   types.List   `tfsdk:"memory_spaces"`
@@ -52,10 +45,11 @@ func (r *agentResource) Metadata(_ context.Context, req resource.MetadataRequest
 
 func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "A named agent preset: a saved session configuration invoked with a message.\n\n" +
-			"A preset deliberately names no runtime vendor. Which machine runs the work is a property " +
-			"of the invocation, not of the saved configuration — a pinned vendor is invisible once it " +
-			"disconnects but fatal at invoke, which surfaces as a routine that silently stopped working.",
+		MarkdownDescription: "A named agent preset: a saved agent configuration invoked with a message.\n\n" +
+			"A preset says nothing about *where* the work happens. Which machine runs it, and what it " +
+			"runs against, are properties of the invocation rather than of the saved configuration: a " +
+			"pinned runtime is invisible once it disconnects but fatal at invoke, and a hardcoded " +
+			"checkout can only ever be run one way. Use `horsie_environment` for that.",
 		Attributes: map[string]schema.Attribute{
 			"name": schema.StringAttribute{
 				Required:            true,
@@ -90,27 +84,6 @@ func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Optional: true,
 				MarkdownDescription: "Canonical thinking effort. Omit to take the model's configured default; " +
 					"it must be one the model offers.",
-			},
-		},
-		Blocks: map[string]schema.Block{
-			"repos": schema.ListNestedBlock{
-				MarkdownDescription: "Repositories cloned into the session workspace at provision time.",
-				NestedObject: schema.NestedBlockObject{
-					Attributes: map[string]schema.Attribute{
-						"url": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "HTTPS clone URL, e.g. `https://github.com/org/repo`.",
-						},
-						"git_ref": schema.StringAttribute{
-							Optional:            true,
-							MarkdownDescription: "Branch, tag or commit to check out. Omit for the default branch.",
-						},
-						"dir": schema.StringAttribute{
-							Optional:            true,
-							MarkdownDescription: "Directory under the workspace. Omit for the repo basename.",
-						},
-					},
-				},
 			},
 		},
 	}
@@ -154,22 +127,6 @@ func (r *agentResource) input(ctx context.Context, m agentModel) api.AgentPreset
 		v := m.Description.ValueString()
 		in.Description = &v
 	}
-	if len(m.Repos) > 0 {
-		repos := make([]api.RepoConfig, 0, len(m.Repos))
-		for _, rc := range m.Repos {
-			one := api.RepoConfig{URL: rc.URL.ValueString()}
-			if !rc.GitRef.IsNull() {
-				v := rc.GitRef.ValueString()
-				one.GitRef = &v
-			}
-			if !rc.Dir.IsNull() {
-				v := rc.Dir.ValueString()
-				one.Dir = &v
-			}
-			repos = append(repos, one)
-		}
-		in.Repos = &repos
-	}
 	in.Plugins = stringsFromList(ctx, m.Plugins)
 	in.MCPServers = stringsFromList(ctx, m.MCPServers)
 	in.MemorySpaces = stringsFromList(ctx, m.MemorySpaces)
@@ -184,21 +141,6 @@ func applyAgent(ctx context.Context, m *agentModel, v *api.AgentView) {
 	m.Name = types.StringValue(v.Name)
 	m.Description = types.StringValue(v.Description)
 	m.Model = types.StringValue(v.Model)
-	// An empty list reads back as no block at all, so a preset with no repos
-	// does not plan as a permanent one-element diff.
-	if len(v.Repos) == 0 {
-		m.Repos = nil
-	} else {
-		repos := make([]repoModel, 0, len(v.Repos))
-		for _, rc := range v.Repos {
-			repos = append(repos, repoModel{
-				URL:    types.StringValue(rc.URL),
-				GitRef: optString(rc.GitRef),
-				Dir:    optString(rc.Dir),
-			})
-		}
-		m.Repos = repos
-	}
 	m.Plugins = listFromStrings(ctx, v.Plugins)
 	m.MCPServers = listFromStrings(ctx, v.MCPServers)
 	m.MemorySpaces = listFromStrings(ctx, v.MemorySpaces)

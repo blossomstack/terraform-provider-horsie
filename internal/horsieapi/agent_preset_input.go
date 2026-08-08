@@ -9,12 +9,11 @@ package horsieapi
 // by bare name across packages, so a second `AgentInput` would hijack
 // `events`' reference to the agent-loop `agent.AgentInput`.
 type AgentPresetInput struct {
-	Name           string        `json:"name"`
-	Description    *string       `json:"description,omitempty"`
-	Model          string        `json:"model"`
-	Repos          *[]RepoConfig `json:"repos,omitempty"`
-	Plugins        *[]string     `json:"plugins,omitempty"`
-	MCPServers     *[]string     `json:"mcpServers,omitempty"`
-	MemorySpaces   *[]string     `json:"memorySpaces,omitempty"`
-	ThinkingEffort *string       `json:"thinkingEffort,omitempty"`
+	Name           string    `json:"name"`
+	Description    *string   `json:"description,omitempty"`
+	Model          string    `json:"model"`
+	Plugins        *[]string `json:"plugins,omitempty"`
+	MCPServers     *[]string `json:"mcpServers,omitempty"`
+	MemorySpaces   *[]string `json:"memorySpaces,omitempty"`
+	ThinkingEffort *string   `json:"thinkingEffort,omitempty"`
 }

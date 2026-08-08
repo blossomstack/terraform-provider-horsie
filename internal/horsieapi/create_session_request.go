@@ -11,12 +11,9 @@ type CreateSessionRequest struct {
 	// The first user message, queued as part of the create. Required and
 	// non-empty.
 	Message string `json:"message"`
-	// Runtime vendor name; defaults to "local".
-	Vendor *string `json:"vendor,omitempty"`
-	// Repositories cloned into a vendor-managed workspace at provision time.
-	// Only honored by a vendor that supports provisioning; the UI sends these
-	// only for such a vendor.
-	Repos *[]RepoConfig `json:"repos,omitempty"`
+	// Where this session runs and what it runs against. Required — a session
+	// that did not say has not chosen, it has been chosen for.
+	Environment EnvironmentSpec `json:"environment"`
 	// Selected plugin-bundle names to provision for this session; absent →
 	// the server's default-enabled bundles. Non-empty implies plugins are on.
 	Plugins *[]string `json:"plugins,omitempty"`

@@ -46,14 +46,25 @@ type scheduleModel struct {
 	Month      types.Int64  `tfsdk:"month"`
 }
 
+// environmentSpecModel flattens `EnvironmentSpec`, the other union on this
+// resource. Same shape as the schedule: a discriminator plus the fields each
+// variant needs, validated here rather than as a 422 mid-apply.
+type environmentSpecModel struct {
+	Type   types.String `tfsdk:"type"`
+	Vendor types.String `tfsdk:"vendor"`
+	Name   types.String `tfsdk:"name"`
+	Repos  []repoModel  `tfsdk:"repos"`
+}
+
 type routineModel struct {
-	Name        types.String   `tfsdk:"name"`
-	Description types.String   `tfsdk:"description"`
-	Agent       types.String   `tfsdk:"agent"`
-	Prompt      types.String   `tfsdk:"prompt"`
-	Enabled     types.Bool     `tfsdk:"enabled"`
-	Schedule    *scheduleModel `tfsdk:"schedule"`
-	NextRunAtMS types.Int64    `tfsdk:"next_run_at_ms"`
+	Name        types.String          `tfsdk:"name"`
+	Description types.String          `tfsdk:"description"`
+	Agent       types.String          `tfsdk:"agent"`
+	Prompt      types.String          `tfsdk:"prompt"`
+	Enabled     types.Bool            `tfsdk:"enabled"`
+	Schedule    *scheduleModel        `tfsdk:"schedule"`
+	Environment *environmentSpecModel `tfsdk:"environment"`
+	NextRunAtMS types.Int64           `tfsdk:"next_run_at_ms"`
 }
 
 func (r *routineResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -99,6 +110,40 @@ func (r *routineResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 		},
 		Blocks: map[string]schema.Block{
+			"environment": schema.SingleNestedBlock{
+				MarkdownDescription: "Where each run happens and what it runs against. **Required** — " +
+					"horsie has no default, because an optional environment would be a second, invisible " +
+					"way to answer the question, settled by a server default nobody asked for.",
+				Attributes: map[string]schema.Attribute{
+					"type": schema.StringAttribute{
+						Required:            true,
+						MarkdownDescription: "`runtime` for an ad-hoc environment, or `named` for a `horsie_environment` by name.",
+					},
+					"vendor": schema.StringAttribute{
+						Optional: true,
+						MarkdownDescription: "`runtime`: the runtime vendor. `local` is spelled here like any other " +
+							"vendor — there is no separate variant for it.",
+					},
+					"name": schema.StringAttribute{
+						Optional: true,
+						MarkdownDescription: "`named`: the `horsie_environment` to use. It is resolved and snapshotted " +
+							"when a run is created, so editing or deleting it never re-points a run that exists.",
+					},
+				},
+				Blocks: map[string]schema.Block{
+					"repos": schema.ListNestedBlock{
+						MarkdownDescription: "`runtime`: repositories to check out. A vendor that cannot provision a " +
+							"workspace rejects a non-empty list at create.",
+						NestedObject: schema.NestedBlockObject{
+							Attributes: map[string]schema.Attribute{
+								"url":     schema.StringAttribute{Required: true, MarkdownDescription: "HTTPS clone URL."},
+								"git_ref": schema.StringAttribute{Optional: true, MarkdownDescription: "Branch, tag or commit."},
+								"dir":     schema.StringAttribute{Optional: true, MarkdownDescription: "Directory under the workspace."},
+							},
+						},
+					},
+				},
+			},
 			"schedule": schema.SingleNestedBlock{
 				MarkdownDescription: "When the routine fires by itself. Omit for a manual routine.",
 				Attributes: map[string]schema.Attribute{
@@ -309,6 +354,88 @@ func fromSchedule(ctx context.Context, v api.RoutineSchedule) *scheduleModel {
 	return s
 }
 
+// toEnvironment turns the flattened block into the union, naming any attribute
+// that does not belong to the chosen type.
+func toEnvironment(s *environmentSpecModel) (api.EnvironmentSpec, error) {
+	if s == nil {
+		return api.EnvironmentSpec{}, fmt.Errorf(
+			"an environment block is required: horsie has no default for where a run happens")
+	}
+	switch kind := strings.ToLower(s.Type.ValueString()); kind {
+	case "runtime":
+		if !s.Name.IsNull() {
+			return api.EnvironmentSpec{}, fmt.Errorf("environment type \"runtime\" does not use: name")
+		}
+		if s.Vendor.IsNull() {
+			return api.EnvironmentSpec{}, fmt.Errorf("environment type \"runtime\" needs: vendor")
+		}
+		env := api.RuntimeEnvironment{Vendor: s.Vendor.ValueString()}
+		if len(s.Repos) > 0 {
+			repos := make([]api.RepoConfig, 0, len(s.Repos))
+			for _, rc := range s.Repos {
+				one := api.RepoConfig{URL: rc.URL.ValueString()}
+				if !rc.GitRef.IsNull() {
+					v := rc.GitRef.ValueString()
+					one.GitRef = &v
+				}
+				if !rc.Dir.IsNull() {
+					v := rc.Dir.ValueString()
+					one.Dir = &v
+				}
+				repos = append(repos, one)
+			}
+			env.Repos = &repos
+		}
+		return api.EnvironmentSpec{Variant: api.EnvironmentSpecRuntime{Value: env}}, nil
+	case "named":
+		var stray []string
+		if !s.Vendor.IsNull() {
+			stray = append(stray, "vendor")
+		}
+		if len(s.Repos) > 0 {
+			stray = append(stray, "repos")
+		}
+		if len(stray) > 0 {
+			return api.EnvironmentSpec{}, fmt.Errorf("environment type \"named\" does not use: %s", strings.Join(stray, ", "))
+		}
+		if s.Name.IsNull() {
+			return api.EnvironmentSpec{}, fmt.Errorf("environment type \"named\" needs: name")
+		}
+		return api.EnvironmentSpec{Variant: api.EnvironmentSpecNamed{
+			Value: api.NamedEnvironment{Name: s.Name.ValueString()},
+		}}, nil
+	default:
+		return api.EnvironmentSpec{}, fmt.Errorf(
+			"unknown environment type %q (expected runtime or named)", s.Type.ValueString())
+	}
+}
+
+// fromEnvironment flattens the union back, leaving what the variant does not
+// use as null so it does not read as drift.
+func fromEnvironment(v api.EnvironmentSpec) *environmentSpecModel {
+	e := &environmentSpecModel{Vendor: types.StringNull(), Name: types.StringNull()}
+	switch variant := v.Variant.(type) {
+	case api.EnvironmentSpecRuntime:
+		e.Type = types.StringValue("runtime")
+		e.Vendor = types.StringValue(variant.Value.Vendor)
+		if variant.Value.Repos != nil {
+			for _, rc := range *variant.Value.Repos {
+				e.Repos = append(e.Repos, repoModel{
+					URL:    types.StringValue(rc.URL),
+					GitRef: optString(rc.GitRef),
+					Dir:    optString(rc.Dir),
+				})
+			}
+		}
+	case api.EnvironmentSpecNamed:
+		e.Type = types.StringValue("named")
+		e.Name = types.StringValue(variant.Value.Name)
+	default:
+		e.Type = types.StringValue(fmt.Sprintf("unsupported(%T)", v.Variant))
+	}
+	return e
+}
+
 func (r *routineResource) input(ctx context.Context, m routineModel) (api.RoutineInput, error) {
 	in := api.RoutineInput{
 		Name:   m.Name.ValueString(),
@@ -323,6 +450,11 @@ func (r *routineResource) input(ctx context.Context, m routineModel) (api.Routin
 		v := m.Enabled.ValueBool()
 		in.Enabled = &v
 	}
+	env, err := toEnvironment(m.Environment)
+	if err != nil {
+		return in, err
+	}
+	in.Environment = env
 	sched, err := toSchedule(ctx, m.Schedule)
 	if err != nil {
 		return in, err
@@ -338,6 +470,7 @@ func applyRoutine(ctx context.Context, m *routineModel, v *api.RoutineView) {
 	m.Prompt = types.StringValue(v.Prompt)
 	m.Enabled = types.BoolValue(v.Enabled)
 	m.Schedule = fromSchedule(ctx, v.Schedule)
+	m.Environment = fromEnvironment(v.Environment)
 	if v.NextRunAtMs != nil {
 		m.NextRunAtMS = types.Int64Value(int64(*v.NextRunAtMs))
 	} else {

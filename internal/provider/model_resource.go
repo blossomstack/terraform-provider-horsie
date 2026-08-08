@@ -85,8 +85,13 @@ func (r *modelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				MarkdownDescription: "Wire encoding for this model's thinking control.",
 			},
 			"forced_tools_disable_thinking": schema.BoolAttribute{
-				Optional:            true,
-				MarkdownDescription: "Set for backends that reject a pinned `tool_choice` while thinking is enabled.",
+				Optional: true,
+				// Computed because the server answers with `false` rather than
+				// echoing the omission, and a plain Optional attribute that the
+				// server fills in fails the apply with "Provider produced
+				// inconsistent result after apply".
+				Computed:            true,
+				MarkdownDescription: "Set for backends that reject a pinned `tool_choice` while thinking is enabled. Defaults to false.",
 			},
 		},
 	}

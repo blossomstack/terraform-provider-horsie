@@ -6,11 +6,9 @@ package horsieapi
 // start step is handed.
 type WorkflowRunRequest struct {
 	Input string `json:"input"`
-	// Runtime vendor for the run's single shared runtime; absent → the
-	// server's default vendor at invoke.
-	Vendor *string `json:"vendor,omitempty"`
-	// Repositories cloned into the run's shared workspace.
-	Repos *[]RepoConfig `json:"repos,omitempty"`
+	// Where the run's single shared runtime is built, and what it runs
+	// against. Required.
+	Environment EnvironmentSpec `json:"environment"`
 	// Optional run title.
 	Name *string `json:"name,omitempty"`
 }

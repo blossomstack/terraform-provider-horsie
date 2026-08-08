@@ -6,6 +6,8 @@ package horsieapi
 type AgentInvokeRequest struct {
 	// First user message; queued immediately after the session is created.
 	Message string `json:"message"`
+	// Where this invocation runs and what it runs against. Required.
+	Environment EnvironmentSpec `json:"environment"`
 	// Optional session title.
 	Name *string `json:"name,omitempty"`
 }

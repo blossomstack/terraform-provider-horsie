@@ -11,7 +11,11 @@ type SessionDetail struct {
 	// User-set key-value metadata (e.g. `group=<name>`). Empty when none.
 	Annotations []AnnotationEntry `json:"annotations"`
 	Model       string            `json:"model"`
-	Vendor      string            `json:"vendor"`
+	// The predefined environment this session was created from; absent when it
+	// was created from an ad-hoc runtime. `vendor` and `repos` are what it
+	// resolved to, and stay the answer to what the session actually got.
+	Environment *string `json:"environment,omitempty"`
+	Vendor      string  `json:"vendor"`
 	// Clone URLs of the session's provisioned repos (empty when none).
 	Repos []string `json:"repos"`
 	// Selected skill-bundle names (empty when none).

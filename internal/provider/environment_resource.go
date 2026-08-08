@@ -26,6 +26,14 @@ type environmentResource struct{ client *client.Client }
 // NewEnvironmentResource registers `horsie_environment`.
 func NewEnvironmentResource() resource.Resource { return &environmentResource{} }
 
+// repoModel is shared by the blocks that still take repositories. Agent presets
+// no longer do: what a session runs against is a property of the invocation.
+type repoModel struct {
+	URL    types.String `tfsdk:"url"`
+	GitRef types.String `tfsdk:"git_ref"`
+	Dir    types.String `tfsdk:"dir"`
+}
+
 type envVarModel struct {
 	Name  types.String `tfsdk:"name"`
 	Value types.String `tfsdk:"value"`
