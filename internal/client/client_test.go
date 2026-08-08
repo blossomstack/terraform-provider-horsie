@@ -140,3 +140,59 @@ func TestConflictKeepsItsStatusAndBody(t *testing.T) {
 		t.Error("the server's explanation should survive into the diagnostic")
 	}
 }
+
+func TestAgentPresetRoundTripsListsAndRepos(t *testing.T) {
+	var got api.AgentPresetInput
+	c := fake(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agents" || r.Method != http.MethodPost {
+			t.Errorf("%s %s, want POST /api/agents", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		ref := "main"
+		_ = json.NewEncoder(w).Encode(api.AgentView{
+			Name: "reviewer", Model: "sonnet",
+			Repos:        []api.RepoConfig{{URL: "https://github.com/o/r", GitRef: &ref}},
+			MemorySpaces: []string{"notes"},
+		})
+	})
+
+	repos := []api.RepoConfig{{URL: "https://github.com/o/r"}}
+	spaces := []string{"notes"}
+	view, err := c.CreateAgent(context.Background(), api.AgentPresetInput{
+		Name: "reviewer", Model: "sonnet", Repos: &repos, MemorySpaces: &spaces,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if got.Repos == nil || len(*got.Repos) != 1 || (*got.Repos)[0].URL != "https://github.com/o/r" {
+		t.Errorf("repos did not survive the wire: %+v", got.Repos)
+	}
+	if len(view.MemorySpaces) != 1 || view.MemorySpaces[0] != "notes" {
+		t.Errorf("memorySpaces did not decode: %+v", view.MemorySpaces)
+	}
+}
+
+// A memory space update is addressed by the OLD name and carries the new one in
+// the body, because horsie renames in place and carries the memories across.
+func TestMemorySpaceRenameIsAddressedByTheOldName(t *testing.T) {
+	var gotPath string
+	var got api.MemorySpaceUpdateInput
+	c := fake(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(api.MemorySpaceView{Name: "new", Description: "d"})
+	})
+
+	newName := "new"
+	if _, err := c.UpdateMemorySpace(context.Background(), "old", api.MemorySpaceUpdateInput{Name: &newName}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if gotPath != "/api/memory-spaces/old" {
+		t.Errorf("path = %q, want the old name", gotPath)
+	}
+	if got.Name == nil || *got.Name != "new" {
+		t.Errorf("the new name must ride in the body: %+v", got.Name)
+	}
+}
