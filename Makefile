@@ -25,9 +25,13 @@ generate:
 	@out="$$(gofmt -l internal/horsieapi)"; \
 	if [ -n "$$out" ]; then echo "generated Go is not gofmt-clean: $$out"; exit 1; fi
 
+# Pinned, not `@latest`: an unpinned tool changed its own minimum Go version
+# under CI and broke a build that had not changed.
+TFPLUGINDOCS_VERSION ?= v0.25.0
+
 # Registry documentation, generated from the schemas plus examples/.
 docs:
-	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest generate --provider-name horsie
+	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@$(TFPLUGINDOCS_VERSION) generate --provider-name horsie
 
 # Fail if docs/ is stale. The Registry serves whatever is committed, so a schema
 # change with no regenerate ships documentation that describes the old provider.
