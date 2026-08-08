@@ -30,3 +30,5 @@ jobs:
       - run: make vet
       - run: make test
       - run: make build
+      # The Registry serves whatever is committed under docs/.
+      - run: make docs-check

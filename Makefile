@@ -1,6 +1,6 @@
-.PHONY: build test vet fmt-check generate all
+.PHONY: build test vet fmt-check generate docs docs-check all
 
-all: fmt-check vet test build
+all: fmt-check vet test build docs-check
 
 build:
 	go build ./...
@@ -24,3 +24,13 @@ generate:
 	fluorite go --inputs $(HORSIE_FLUORITE) --output internal/horsieapi --package-name horsieapi
 	@out="$$(gofmt -l internal/horsieapi)"; \
 	if [ -n "$$out" ]; then echo "generated Go is not gofmt-clean: $$out"; exit 1; fi
+
+# Registry documentation, generated from the schemas plus examples/.
+docs:
+	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest generate --provider-name horsie
+
+# Fail if docs/ is stale. The Registry serves whatever is committed, so a schema
+# change with no regenerate ships documentation that describes the old provider.
+docs-check: docs
+	@out="$$(git status --porcelain docs/)"; \
+	if [ -n "$$out" ]; then echo "docs/ is stale — run 'make docs' and commit:"; echo "$$out"; exit 1; fi
