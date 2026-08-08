@@ -5,6 +5,11 @@
 # are what it looks for by name — they are not free choices.
 version: 2
 
+# Pinned, not inferred: the Registry matches release assets by exact name
+# (terraform-provider-horsie_<version>_<os>_<arch>.zip and friends) and rejects
+# the release if they differ.
+project_name: terraform-provider-horsie
+
 before:
   hooks:
     - go mod tidy
