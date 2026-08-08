@@ -55,7 +55,7 @@ Everything the provider manages is scoped to the account that owns the token. It
 |---|---|
 | `horsie_model_provider` | An LLM provider — endpoint, kind and credential |
 | `horsie_model` | A model alias sessions and presets select by name |
-| `horsie_agent` | An agent preset: model, repos, skills, MCP servers, memory spaces |
+| `horsie_agent` | An agent preset: model, skills, MCP servers, memory spaces |
 | `horsie_memory_space` | A namespace for an agent's long-term memories |
 | `horsie_routine` | An agent preset plus a fixed prompt and a schedule |
 | `horsie_environment` | A reusable runtime + repos bundle (experimental) |
@@ -69,6 +69,8 @@ More to come: workflows, and the marketplace/plugin/MCP supply chain.
 **`api_key` is write-only.** The server never returns a key, only whether one is stored (`has_credential`). Omitting `api_key` leaves a stored key untouched; setting it to `""` clears it. A `chatgpt`-kind provider authenticates with an OAuth sign-in performed out of band and holds no key at all, so Terraform cannot manage its credential.
 
 Deleting a provider that a model still routes to is refused by the server. Reference the provider's `name` from your `horsie_model` resources and Terraform will order the destroy correctly.
+
+**A preset says nothing about where the work happens.** No repos, no runtime. Which machine runs it and what it runs against are properties of the *invocation* — a pinned runtime is invisible once it disconnects but fatal at invoke, and a hardcoded checkout can only ever be run one way. `horsie_routine` therefore carries a required `environment` block, and `horsie_environment` exists for the named case.
 
 ## Development
 

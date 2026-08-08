@@ -9,8 +9,6 @@ type AgentView struct {
 	Description string `json:"description"`
 	// Configured model alias.
 	Model string `json:"model"`
-	// Repositories cloned into the session workspace at provision time.
-	Repos []RepoConfig `json:"repos"`
 	// Selected plugin-bundle (skill) names.
 	Plugins []string `json:"plugins"`
 	// Enabled MCP server names.

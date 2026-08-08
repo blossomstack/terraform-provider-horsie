@@ -10,6 +10,10 @@ type RoutineView struct {
 	Description string `json:"description"`
 	// Name of the agent preset every run is configured from.
 	Agent string `json:"agent"`
+	// Where every run happens. Required: a routine that cannot say where it
+	// runs is worse than one that says something which later breaks, and a
+	// break is already visible — it lands in `last_error`.
+	Environment EnvironmentSpec `json:"environment"`
 	// The message queued as each run's first user message.
 	Prompt   string          `json:"prompt"`
 	Schedule RoutineSchedule `json:"schedule"`

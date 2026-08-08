@@ -8,6 +8,7 @@ type RoutineInput struct {
 	Name        string           `json:"name"`
 	Description *string          `json:"description,omitempty"`
 	Agent       string           `json:"agent"`
+	Environment EnvironmentSpec  `json:"environment"`
 	Prompt      string           `json:"prompt"`
 	Schedule    *RoutineSchedule `json:"schedule,omitempty"`
 	Enabled     *bool            `json:"enabled,omitempty"`

@@ -141,7 +141,7 @@ func TestConflictKeepsItsStatusAndBody(t *testing.T) {
 	}
 }
 
-func TestAgentPresetRoundTripsListsAndRepos(t *testing.T) {
+func TestAgentPresetRoundTripsLists(t *testing.T) {
 	var got api.AgentPresetInput
 	c := fake(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/agents" || r.Method != http.MethodPost {
@@ -150,24 +150,23 @@ func TestAgentPresetRoundTripsListsAndRepos(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Errorf("decode: %v", err)
 		}
-		ref := "main"
 		_ = json.NewEncoder(w).Encode(api.AgentView{
 			Name: "reviewer", Model: "sonnet",
-			Repos:        []api.RepoConfig{{URL: "https://github.com/o/r", GitRef: &ref}},
+			Plugins:      []string{"reviewing"},
 			MemorySpaces: []string{"notes"},
 		})
 	})
 
-	repos := []api.RepoConfig{{URL: "https://github.com/o/r"}}
 	spaces := []string{"notes"}
+	plugins := []string{"reviewing"}
 	view, err := c.CreateAgent(context.Background(), api.AgentPresetInput{
-		Name: "reviewer", Model: "sonnet", Repos: &repos, MemorySpaces: &spaces,
+		Name: "reviewer", Model: "sonnet", Plugins: &plugins, MemorySpaces: &spaces,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if got.Repos == nil || len(*got.Repos) != 1 || (*got.Repos)[0].URL != "https://github.com/o/r" {
-		t.Errorf("repos did not survive the wire: %+v", got.Repos)
+	if got.Plugins == nil || len(*got.Plugins) != 1 || (*got.Plugins)[0] != "reviewing" {
+		t.Errorf("plugins did not survive the wire: %+v", got.Plugins)
 	}
 	if len(view.MemorySpaces) != 1 || view.MemorySpaces[0] != "notes" {
 		t.Errorf("memorySpaces did not decode: %+v", view.MemorySpaces)
