@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, not just those targeting main: a stacked PR is based on
+  # its parent branch, and filtering on `branches: [main]` silently skips it.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
