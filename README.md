@@ -55,8 +55,12 @@ Everything the provider manages is scoped to the account that owns the token. It
 |---|---|
 | `horsie_model_provider` | An LLM provider — endpoint, kind and credential |
 | `horsie_model` | A model alias sessions and presets select by name |
+| `horsie_agent` | An agent preset: model, repos, skills, MCP servers, memory spaces |
+| `horsie_memory_space` | A namespace for an agent's long-term memories |
+| `horsie_routine` | An agent preset plus a fixed prompt and a schedule |
+| `horsie_environment` | A reusable runtime + repos bundle (experimental) |
 
-More to come: agent presets, routines, workflows, environments, memory spaces, and the skill/MCP supply chain.
+More to come: workflows, and the marketplace/plugin/MCP supply chain.
 
 ### Two things worth knowing
 
