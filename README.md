@@ -59,10 +59,11 @@ Everything the provider manages is scoped to the account that owns the token. It
 | `horsie_memory_space` | A namespace for an agent's long-term memories |
 | `horsie_routine` | An agent preset plus a fixed prompt and a schedule |
 | `horsie_environment` | A reusable runtime + repos bundle (experimental) |
+| `horsie_plugin` | A bundle of skills, commands, agents and hooks, installed from a git repo |
 
-More to come: workflows, and the marketplace/plugin/MCP supply chain.
+More to come: workflows and MCP servers.
 
-### Two things worth knowing
+### Things worth knowing
 
 **`model_provider`, not `provider`.** horsie already uses "vendor" for the *execution runtime* that runs a session, so a bare "provider" beside it would be ambiguous — and `provider` is a reserved word in HCL anyway.
 
@@ -71,6 +72,8 @@ More to come: workflows, and the marketplace/plugin/MCP supply chain.
 Deleting a provider that a model still routes to is refused by the server. Reference the provider's `name` from your `horsie_model` resources and Terraform will order the destroy correctly.
 
 **A preset says nothing about where the work happens.** No repos, no runtime. Which machine runs it and what it runs against are properties of the *invocation* — a pinned runtime is invisible once it disconnects but fatal at invoke, and a hardcoded checkout can only ever be run one way. `horsie_routine` therefore carries a required `environment` block, and `horsie_environment` exists for the named case.
+
+**A plugin is a git repo, pinned.** horsie clones a bundle once, at install, and serves its own copy from then on — so `source_ref` should be a commit sha. Point it at a branch and Terraform sees no change however far the remote moves; the `version` attribute records the sha that actually landed. Both source attributes replace the resource, because horsie has no re-pin operation. The bundle's `name` is assigned by the server, from the repo's `plugin.json` or its basename, so it is an output rather than an input.
 
 ## Development
 
