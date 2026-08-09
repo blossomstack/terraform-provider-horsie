@@ -118,5 +118,7 @@ func (p *horsieProvider) Resources(_ context.Context) []func() resource.Resource
 }
 
 func (p *horsieProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewRuntimeVendorsDataSource,
+	}
 }
