@@ -112,9 +112,13 @@ func (p *horsieProvider) Resources(_ context.Context) []func() resource.Resource
 		NewPluginResource,
 		NewMcpServerResource,
 		NewWorkflowResource,
+		NewRuntimeVendorResource,
+		NewDefaultRuntimeVendorResource,
 	}
 }
 
 func (p *horsieProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewRuntimeVendorsDataSource,
+	}
 }
