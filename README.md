@@ -61,8 +61,9 @@ Everything the provider manages is scoped to the account that owns the token. It
 | `horsie_environment` | A reusable runtime + repos bundle (experimental) |
 | `horsie_plugin` | A bundle of skills, commands, agents and hooks, installed from a git repo |
 | `horsie_mcp_server` | A remote MCP server: endpoint and how horsie authenticates to it |
+| `horsie_workflow` | A graph of agent-preset steps, wired by conditions over their output |
 
-More to come: workflows.
+Not covered, deliberately: plugin marketplaces (a bundle installs from a git URL without one), and the parts of horsie that are per-account state rather than configuration.
 
 ### Things worth knowing
 
@@ -72,7 +73,9 @@ More to come: workflows.
 
 Deleting a provider that a model still routes to is refused by the server. Reference the provider's `name` from your `horsie_model` resources and Terraform will order the destroy correctly.
 
-**A preset says nothing about where the work happens.** No repos, no runtime. Which machine runs it and what it runs against are properties of the *invocation* — a pinned runtime is invisible once it disconnects but fatal at invoke, and a hardcoded checkout can only ever be run one way. `horsie_routine` therefore carries a required `environment` block, and `horsie_environment` exists for the named case.
+**A preset says nothing about where the work happens.** No repos, no runtime. Which machine runs it and what it runs against are properties of the *invocation* — a pinned runtime is invisible once it disconnects but fatal at invoke, and a hardcoded checkout can only ever be run one way. `horsie_routine` therefore carries a required `environment` block, and `horsie_environment` exists for the named case. `horsie_workflow` is the same idea: a definition is only the graph, and where a run happens comes from the invocation.
+
+**In a workflow, order is behaviour.** A step's `transition` blocks are tried in the order written and the first match wins, so put the catch-all last. A step with no transitions ends the run. Conditions read the producing step's structured output, so any step with a conditional transition needs an `output_schema` — write it with `jsonencode`; the provider keeps your formatting in state and only reports drift when the document actually differs.
 
 **A plugin is a git repo, pinned.** horsie clones a bundle once, at install, and serves its own copy from then on — so `source_ref` should be a commit sha. Point it at a branch and Terraform sees no change however far the remote moves; the `version` attribute records the sha that actually landed. Both source attributes replace the resource, because horsie has no re-pin operation. The bundle's `name` is assigned by the server, from the repo's `plugin.json` or its basename, so it is an output rather than an input.
 

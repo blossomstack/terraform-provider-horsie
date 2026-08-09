@@ -111,6 +111,7 @@ func (p *horsieProvider) Resources(_ context.Context) []func() resource.Resource
 		NewRoutineResource,
 		NewPluginResource,
 		NewMcpServerResource,
+		NewWorkflowResource,
 	}
 }
 
