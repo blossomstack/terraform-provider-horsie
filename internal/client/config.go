@@ -14,6 +14,43 @@ import (
 // already means the execution runtime in horsie, so a bare "provider" beside it
 // reads as if it configured runtimes.
 
+// GetSettings returns the whole redacted settings view: models, model
+// providers, the live runtime-vendor roster, and the default runtime vendor.
+//
+// Everything here has a narrower endpoint except the roster and the default,
+// which are read-only projections of state horsie assembles from several
+// places, so this is their only read.
+func (c *Client) GetSettings(ctx context.Context) (*api.SettingsView, error) {
+	var out api.SettingsView
+	if err := c.Do(ctx, http.MethodGet, "/api/config", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetDefaultRuntimeVendor sets the vendor new sessions target when they name
+// none, and returns the settings view horsie answers with.
+func (c *Client) SetDefaultRuntimeVendor(ctx context.Context, vendor string) (*api.SettingsView, error) {
+	var out api.SettingsView
+	in := api.DefaultRuntimeVendorInput{Vendor: vendor}
+	if err := c.Do(ctx, http.MethodPut, "/api/config/default-runtime-vendor", in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ClearDefaultRuntimeVendor forgets the preference, falling back to `local`.
+//
+// A DELETE rather than a PUT of "": horsie refuses an empty vendor name, so
+// this is the only way to say "no preference" rather than "a broken one".
+func (c *Client) ClearDefaultRuntimeVendor(ctx context.Context) (*api.SettingsView, error) {
+	var out api.SettingsView
+	if err := c.Do(ctx, http.MethodDelete, "/api/config/default-runtime-vendor", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListModelProviders returns every configured LLM provider, with secrets
 // redacted to a boolean.
 func (c *Client) ListModelProviders(ctx context.Context) ([]api.ProviderView, error) {
