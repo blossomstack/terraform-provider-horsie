@@ -109,6 +109,7 @@ func (p *horsieProvider) Resources(_ context.Context) []func() resource.Resource
 		NewAgentResource,
 		NewEnvironmentResource,
 		NewRoutineResource,
+		NewPluginResource,
 	}
 }
 
