@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -36,16 +37,28 @@ type catalogEntryModel struct {
 	ArgumentHint types.String `tfsdk:"argument_hint"`
 }
 
+// catalogEntryType is the element type of `catalog`. It has to be spelled out
+// because the attribute is computed: the plan carries it as unknown, and only a
+// `types.List` can hold that — a `[]catalogEntryModel` field fails the apply
+// with "Received unknown value, however the target type cannot handle unknown
+// values" before the resource is ever created.
+var catalogEntryType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"kind":          types.StringType,
+	"name":          types.StringType,
+	"description":   types.StringType,
+	"argument_hint": types.StringType,
+}}
+
 type pluginModel struct {
-	Name           types.String        `tfsdk:"name"`
-	SourceURL      types.String        `tfsdk:"source_url"`
-	SourceRef      types.String        `tfsdk:"source_ref"`
-	EnabledDefault types.Bool          `tfsdk:"enabled_default"`
-	Description    types.String        `tfsdk:"description"`
-	Version        types.String        `tfsdk:"version"`
-	HasHooks       types.Bool          `tfsdk:"has_hooks"`
-	ArtifactSize   types.Int64         `tfsdk:"artifact_size"`
-	Catalog        []catalogEntryModel `tfsdk:"catalog"`
+	Name           types.String `tfsdk:"name"`
+	SourceURL      types.String `tfsdk:"source_url"`
+	SourceRef      types.String `tfsdk:"source_ref"`
+	EnabledDefault types.Bool   `tfsdk:"enabled_default"`
+	Description    types.String `tfsdk:"description"`
+	Version        types.String `tfsdk:"version"`
+	HasHooks       types.Bool   `tfsdk:"has_hooks"`
+	ArtifactSize   types.Int64  `tfsdk:"artifact_size"`
+	Catalog        types.List   `tfsdk:"catalog"`
 }
 
 func (r *pluginResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -140,7 +153,7 @@ func (r *pluginResource) Configure(_ context.Context, req resource.ConfigureRequ
 	r.client = c
 }
 
-func applyPlugin(m *pluginModel, v *api.PluginView) {
+func applyPlugin(ctx context.Context, m *pluginModel, v *api.PluginView) {
 	m.Name = types.StringValue(v.Name)
 	m.SourceURL = types.StringValue(v.SourceURL)
 	m.SourceRef = optString(v.SourceRef)
@@ -149,15 +162,24 @@ func applyPlugin(m *pluginModel, v *api.PluginView) {
 	m.Version = optString(v.Version)
 	m.HasHooks = types.BoolValue(v.HasHooks)
 	m.ArtifactSize = types.Int64Value(int64(v.ArtifactSize))
-	m.Catalog = nil
+
+	entries := make([]catalogEntryModel, 0, len(v.Catalog))
 	for _, e := range v.Catalog {
-		m.Catalog = append(m.Catalog, catalogEntryModel{
+		entries = append(entries, catalogEntryModel{
 			Kind:         types.StringValue(e.Kind),
 			Name:         types.StringValue(e.Name),
 			Description:  types.StringValue(e.Description),
 			ArgumentHint: optString(e.ArgumentHint),
 		})
 	}
+	list, diags := types.ListValueFrom(ctx, catalogEntryType, entries)
+	if diags.HasError() {
+		// Only reachable if catalogEntryType and catalogEntryModel drift apart,
+		// which is a provider bug and is what TestCatalogElementTypeMatchesTheSchema
+		// guards; an empty list beats a half-built one.
+		list = types.ListValueMust(catalogEntryType, nil)
+	}
+	m.Catalog = list
 }
 
 // installed unwraps the outcome, turning "that URL is a catalogue" into a
@@ -220,7 +242,7 @@ func (r *pluginResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 	}
 
-	applyPlugin(&plan, view)
+	applyPlugin(ctx, &plan, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -239,7 +261,7 @@ func (r *pluginResource) Read(ctx context.Context, req resource.ReadRequest, res
 		resp.Diagnostics.AddError("Could not read plugin", err.Error())
 		return
 	}
-	applyPlugin(&state, view)
+	applyPlugin(ctx, &state, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -257,7 +279,7 @@ func (r *pluginResource) Update(ctx context.Context, req resource.UpdateRequest,
 		resp.Diagnostics.AddError("Could not update plugin", err.Error())
 		return
 	}
-	applyPlugin(&plan, view)
+	applyPlugin(ctx, &plan, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

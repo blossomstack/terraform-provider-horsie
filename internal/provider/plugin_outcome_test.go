@@ -1,8 +1,12 @@
 package provider
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 
 	api "github.com/blossomstack/terraform-provider-horsie/internal/horsieapi"
 )
@@ -39,5 +43,22 @@ func TestInstalledRejectsAMarketplace(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
+	}
+}
+
+// catalogEntryType is hand-written, so it can drift from the schema it is
+// supposed to mirror. That drift is invisible until an apply fails with a
+// value-conversion error, so pin the two together here.
+func TestCatalogElementTypeMatchesTheSchema(t *testing.T) {
+	var resp resource.SchemaResponse
+	NewPluginResource().(*pluginResource).Schema(context.Background(), resource.SchemaRequest{}, &resp)
+
+	attribute, ok := resp.Schema.Attributes["catalog"].(schema.ListNestedAttribute)
+	if !ok {
+		t.Fatalf("catalog is %T, want a ListNestedAttribute", resp.Schema.Attributes["catalog"])
+	}
+	want := attribute.NestedObject.Type()
+	if got := catalogEntryType; !got.Equal(want) {
+		t.Errorf("catalogEntryType = %v, want %v", got, want)
 	}
 }
