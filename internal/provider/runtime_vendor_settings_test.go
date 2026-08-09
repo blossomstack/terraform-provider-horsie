@@ -12,8 +12,8 @@ import (
 // a zero value, which this catches — nothing else does, since the unit tests in
 // this package drive a fake built from the same generated types and so agree
 // with any mistake they contain.
-func flyModel() *flySettingsModel {
-	return &flySettingsModel{
+func flyModel() []flySettingsModel {
+	return []flySettingsModel{{
 		App:           types.StringValue("horsie-runtimes"),
 		Image:         types.StringValue("ghcr.io/x/runtime:1"),
 		Region:        types.StringValue("iad"),
@@ -24,11 +24,11 @@ func flyModel() *flySettingsModel {
 		CPUs:          types.Int64Value(2),
 		MemoryMB:      types.Int64Value(2048),
 		VolumeSizeGB:  types.Int64Value(20),
-	}
+	}}
 }
 
-func velosModel() *velosSettingsModel {
-	return &velosSettingsModel{
+func velosModel() []velosSettingsModel {
+	return []velosSettingsModel{{
 		ServerURL:     types.StringValue("http://velos:8080"),
 		Image:         types.StringValue("ghcr.io/x/runtime:1"),
 		RuntimeBin:    types.StringValue("/usr/bin/horsie-runtime"),
@@ -36,7 +36,7 @@ func velosModel() *velosSettingsModel {
 		CallbackURL:   types.StringValue("ws://horsie.internal:3789/api/runtime/connect"),
 		CPU:           types.Int64Value(4),
 		MemoryMB:      types.Int64Value(4096),
-	}
+	}}
 }
 
 func TestFlySettingsRoundTrip(t *testing.T) {
@@ -62,10 +62,10 @@ func TestFlySettingsRoundTrip(t *testing.T) {
 
 	var back runtimeVendorModel
 	back.applyView(api.RuntimeVendorConfigView{Name: "fly-prod", Settings: got, HasCredential: true})
-	if back.Fly == nil || back.Velos != nil {
+	if len(back.Fly) != 1 || len(back.Velos) != 0 {
 		t.Fatalf("applyView chose the wrong block: fly=%v velos=%v", back.Fly, back.Velos)
 	}
-	if *back.Fly != *flyModel() {
+	if back.Fly[0] != flyModel()[0] {
 		t.Errorf("round trip lost a field: %#v", back.Fly)
 	}
 	if back.Name.ValueString() != "fly-prod" || !back.HasCredential.ValueBool() {
@@ -95,10 +95,10 @@ func TestVelosSettingsRoundTrip(t *testing.T) {
 
 	var back runtimeVendorModel
 	back.applyView(api.RuntimeVendorConfigView{Name: "velos-lab", Settings: got})
-	if back.Velos == nil || back.Fly != nil {
+	if len(back.Velos) != 1 || len(back.Fly) != 0 {
 		t.Fatalf("applyView chose the wrong block: fly=%v velos=%v", back.Fly, back.Velos)
 	}
-	if *back.Velos != *velosModel() {
+	if back.Velos[0] != velosModel()[0] {
 		t.Errorf("round trip lost a field: %#v", back.Velos)
 	}
 }
@@ -127,10 +127,10 @@ func TestApplyViewClearsTheOtherBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.applyView(api.RuntimeVendorConfigView{Name: "x", Settings: settings})
-	if m.Fly != nil {
+	if len(m.Fly) != 0 {
 		t.Error("the stale fly block survived")
 	}
-	if m.Velos == nil {
+	if len(m.Velos) != 1 {
 		t.Error("the velos block was not set")
 	}
 }

@@ -62,6 +62,14 @@ Everything the provider manages is scoped to the account that owns the token. It
 | `horsie_plugin` | A bundle of skills, commands, agents and hooks, installed from a git repo |
 | `horsie_mcp_server` | A remote MCP server: endpoint and how horsie authenticates to it |
 | `horsie_workflow` | A graph of agent-preset steps, wired by conditions over their output |
+| `horsie_runtime_vendor` | A cloud runtime vendor the server builds itself: Fly Machines or velos |
+| `horsie_default_runtime_vendor` | Which runtime vendor new sessions target when they name none |
+
+## Data sources
+
+| Data source | Reads |
+|---|---|
+| `horsie_runtime_vendors` | Every vendor a session can run on, including `local` and dialled-in agents |
 
 Not covered, deliberately: plugin marketplaces (a bundle installs from a git URL without one), and the parts of horsie that are per-account state rather than configuration.
 

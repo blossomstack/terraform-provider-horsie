@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/blossomstack/terraform-provider-horsie/internal/client"
@@ -65,11 +67,11 @@ type velosSettingsModel struct {
 // discriminator to keep in step with it, and a third substrate is a third block
 // rather than a new resource type.
 type runtimeVendorModel struct {
-	Name          types.String        `tfsdk:"name"`
-	Credential    types.String        `tfsdk:"credential"`
-	HasCredential types.Bool          `tfsdk:"has_credential"`
-	Fly           *flySettingsModel   `tfsdk:"fly"`
-	Velos         *velosSettingsModel `tfsdk:"velos"`
+	Name          types.String         `tfsdk:"name"`
+	Credential    types.String         `tfsdk:"credential"`
+	HasCredential types.Bool           `tfsdk:"has_credential"`
+	Fly           []flySettingsModel   `tfsdk:"fly"`
+	Velos         []velosSettingsModel `tfsdk:"velos"`
 }
 
 func (r *runtimeVendorResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -111,94 +113,100 @@ func (r *runtimeVendorResource) Schema(_ context.Context, _ resource.SchemaReque
 			},
 		},
 		Blocks: map[string]schema.Block{
-			"fly": schema.SingleNestedBlock{
+			"fly": schema.ListNestedBlock{
 				MarkdownDescription: "Machines on [Fly](https://fly.io). Exactly one of `fly` or `velos` " +
 					"must be given.",
-				Attributes: map[string]schema.Attribute{
-					"app": schema.StringAttribute{
-						Required: true,
-						MarkdownDescription: "The Fly app machines are created in. It must already exist — " +
-							"horsie creates machines, not apps.",
-					},
-					"image": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "OCI image with `horsie-runtime` baked in.",
-					},
-					"region": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "Fly region code, e.g. `iad`.",
-					},
-					"workspace_root": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "Where inside the machine workspaces are allocated, e.g. `/workspaces`.",
-					},
-					"callback_url": schema.StringAttribute{
-						Required: true,
-						MarkdownDescription: "The `wss://` URL a machine reaches this server on, **including " +
-							"the connect path** — `wss://horsie.example.com/api/runtime/connect`. horsie " +
-							"refuses a URL with no path rather than completing one, so that what is stored " +
-							"is always what was written. An address that only resolves on the server itself " +
-							"(`localhost`, `127.0.0.1`, `::1`, anything under `.localhost`) is refused too: " +
-							"inside a machine those names mean the machine.",
-					},
-					"volumes": schema.BoolAttribute{
-						Required: true,
-						MarkdownDescription: "Give each runtime a volume, so a stopped one keeps its " +
-							"workspace. Without it a hibernated session cannot be resumed.",
-					},
-					"cpu_kind": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "`shared` or `performance`.",
-					},
-					"cpus": schema.Int64Attribute{
-						Required:            true,
-						MarkdownDescription: "vCPUs per machine.",
-					},
-					"memory_mb": schema.Int64Attribute{
-						Required:            true,
-						MarkdownDescription: "Memory per machine, in MB.",
-					},
-					"volume_size_gb": schema.Int64Attribute{
-						Required: true,
-						MarkdownDescription: "Volume size in GB. Required even when `volumes = false`, " +
-							"where horsie ignores it — the settings horsie stores have no optionals.",
+				Validators: []validator.List{listvalidator.SizeAtMost(1)},
+				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"app": schema.StringAttribute{
+							Required: true,
+							MarkdownDescription: "The Fly app machines are created in. It must already exist — " +
+								"horsie creates machines, not apps.",
+						},
+						"image": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "OCI image with `horsie-runtime` baked in.",
+						},
+						"region": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "Fly region code, e.g. `iad`.",
+						},
+						"workspace_root": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "Where inside the machine workspaces are allocated, e.g. `/workspaces`.",
+						},
+						"callback_url": schema.StringAttribute{
+							Required: true,
+							MarkdownDescription: "The `wss://` URL a machine reaches this server on, **including " +
+								"the connect path** — `wss://horsie.example.com/api/runtime/connect`. horsie " +
+								"refuses a URL with no path rather than completing one, so that what is stored " +
+								"is always what was written. An address that only resolves on the server itself " +
+								"(`localhost`, `127.0.0.1`, `::1`, anything under `.localhost`) is refused too: " +
+								"inside a machine those names mean the machine.",
+						},
+						"volumes": schema.BoolAttribute{
+							Required: true,
+							MarkdownDescription: "Give each runtime a volume, so a stopped one keeps its " +
+								"workspace. Without it a hibernated session cannot be resumed.",
+						},
+						"cpu_kind": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "`shared` or `performance`.",
+						},
+						"cpus": schema.Int64Attribute{
+							Required:            true,
+							MarkdownDescription: "vCPUs per machine.",
+						},
+						"memory_mb": schema.Int64Attribute{
+							Required:            true,
+							MarkdownDescription: "Memory per machine, in MB.",
+						},
+						"volume_size_gb": schema.Int64Attribute{
+							Required: true,
+							MarkdownDescription: "Volume size in GB. Required even when `volumes = false`, " +
+								"where horsie ignores it — the settings horsie stores have no optionals.",
+						},
 					},
 				},
 			},
-			"velos": schema.SingleNestedBlock{
+			"velos": schema.ListNestedBlock{
 				MarkdownDescription: "Containers on a velos deployment. Exactly one of `fly` or `velos` " +
 					"must be given.",
-				Attributes: map[string]schema.Attribute{
-					"server_url": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "The velos server root, e.g. `http://velos:8080`.",
-					},
-					"image": schema.StringAttribute{
-						Required: true,
-						MarkdownDescription: "OCI image bundling `horsie-runtime`, built without the " +
-							"sandbox feature — the container is already the isolation boundary.",
-					},
-					"runtime_bin": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "Path to `horsie-runtime` inside the image.",
-					},
-					"workspace_root": schema.StringAttribute{
-						Required:            true,
-						MarkdownDescription: "Where inside the container workspaces are allocated.",
-					},
-					"callback_url": schema.StringAttribute{
-						Required: true,
-						MarkdownDescription: "The `ws://` URL a container reaches this server on **from " +
-							"velos's container network**, including the connect path — not necessarily " +
-							"the address a browser uses.",
-					},
-					"cpu": schema.Int64Attribute{
-						Required:            true,
-						MarkdownDescription: "vCPUs per container.",
-					},
-					"memory_mb": schema.Int64Attribute{
-						Required:            true,
-						MarkdownDescription: "Memory per container, in MB.",
+				Validators: []validator.List{listvalidator.SizeAtMost(1)},
+				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"server_url": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "The velos server root, e.g. `http://velos:8080`.",
+						},
+						"image": schema.StringAttribute{
+							Required: true,
+							MarkdownDescription: "OCI image bundling `horsie-runtime`, built without the " +
+								"sandbox feature — the container is already the isolation boundary.",
+						},
+						"runtime_bin": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "Path to `horsie-runtime` inside the image.",
+						},
+						"workspace_root": schema.StringAttribute{
+							Required:            true,
+							MarkdownDescription: "Where inside the container workspaces are allocated.",
+						},
+						"callback_url": schema.StringAttribute{
+							Required: true,
+							MarkdownDescription: "The `ws://` URL a container reaches this server on **from " +
+								"velos's container network**, including the connect path — not necessarily " +
+								"the address a browser uses.",
+						},
+						"cpu": schema.Int64Attribute{
+							Required:            true,
+							MarkdownDescription: "vCPUs per container.",
+						},
+						"memory_mb": schema.Int64Attribute{
+							Required:            true,
+							MarkdownDescription: "Memory per container, in MB.",
+						},
 					},
 				},
 			},
@@ -231,11 +239,11 @@ func (r *runtimeVendorResource) ValidateConfig(ctx context.Context, req resource
 		return
 	}
 	switch {
-	case m.Fly == nil && m.Velos == nil:
+	case len(m.Fly) == 0 && len(m.Velos) == 0:
 		resp.Diagnostics.AddError("Missing vendor kind",
 			"A runtime vendor needs exactly one `fly` or `velos` block. The block you write is the "+
 				"kind of vendor horsie builds, so there is nothing for it to be without one.")
-	case m.Fly != nil && m.Velos != nil:
+	case len(m.Fly) > 0 && len(m.Velos) > 0:
 		resp.Diagnostics.AddAttributeError(path.Root("velos"), "Two vendor kinds",
 			"A runtime vendor has exactly one kind, so `fly` and `velos` cannot both be given. "+
 				"Declare a second `horsie_runtime_vendor` for the other substrate.")
@@ -245,33 +253,33 @@ func (r *runtimeVendorResource) ValidateConfig(ctx context.Context, req resource
 // settings builds the wire union from whichever block is set.
 func (m runtimeVendorModel) settings() (api.RuntimeVendorSettings, error) {
 	switch {
-	case m.Fly != nil && m.Velos != nil:
+	case len(m.Fly) > 0 && len(m.Velos) > 0:
 		return api.RuntimeVendorSettings{}, errors.New("a runtime vendor has exactly one kind, but both `fly` and `velos` are set")
-	case m.Fly != nil:
+	case len(m.Fly) == 1:
 		return api.RuntimeVendorSettings{Variant: api.RuntimeVendorSettingsFly{
 			Value: api.FlyVendorSettings{
-				App:           m.Fly.App.ValueString(),
-				Image:         m.Fly.Image.ValueString(),
-				Region:        m.Fly.Region.ValueString(),
-				WorkspaceRoot: m.Fly.WorkspaceRoot.ValueString(),
-				CallbackURL:   m.Fly.CallbackURL.ValueString(),
-				Volumes:       m.Fly.Volumes.ValueBool(),
-				CPUKind:       m.Fly.CPUKind.ValueString(),
-				Cpus:          uint32(m.Fly.CPUs.ValueInt64()),
-				MemoryMb:      uint32(m.Fly.MemoryMB.ValueInt64()),
-				VolumeSizeGb:  uint32(m.Fly.VolumeSizeGB.ValueInt64()),
+				App:           m.Fly[0].App.ValueString(),
+				Image:         m.Fly[0].Image.ValueString(),
+				Region:        m.Fly[0].Region.ValueString(),
+				WorkspaceRoot: m.Fly[0].WorkspaceRoot.ValueString(),
+				CallbackURL:   m.Fly[0].CallbackURL.ValueString(),
+				Volumes:       m.Fly[0].Volumes.ValueBool(),
+				CPUKind:       m.Fly[0].CPUKind.ValueString(),
+				Cpus:          uint32(m.Fly[0].CPUs.ValueInt64()),
+				MemoryMb:      uint32(m.Fly[0].MemoryMB.ValueInt64()),
+				VolumeSizeGb:  uint32(m.Fly[0].VolumeSizeGB.ValueInt64()),
 			},
 		}}, nil
-	case m.Velos != nil:
+	case len(m.Velos) == 1:
 		return api.RuntimeVendorSettings{Variant: api.RuntimeVendorSettingsVelos{
 			Value: api.VelosVendorSettings{
-				ServerURL:     m.Velos.ServerURL.ValueString(),
-				Image:         m.Velos.Image.ValueString(),
-				RuntimeBin:    m.Velos.RuntimeBin.ValueString(),
-				WorkspaceRoot: m.Velos.WorkspaceRoot.ValueString(),
-				CallbackURL:   m.Velos.CallbackURL.ValueString(),
-				CPU:           uint32(m.Velos.CPU.ValueInt64()),
-				MemoryMb:      uint32(m.Velos.MemoryMB.ValueInt64()),
+				ServerURL:     m.Velos[0].ServerURL.ValueString(),
+				Image:         m.Velos[0].Image.ValueString(),
+				RuntimeBin:    m.Velos[0].RuntimeBin.ValueString(),
+				WorkspaceRoot: m.Velos[0].WorkspaceRoot.ValueString(),
+				CallbackURL:   m.Velos[0].CallbackURL.ValueString(),
+				CPU:           uint32(m.Velos[0].CPU.ValueInt64()),
+				MemoryMb:      uint32(m.Velos[0].MemoryMB.ValueInt64()),
 			},
 		}}, nil
 	default:
@@ -291,7 +299,7 @@ func (m *runtimeVendorModel) applyView(v api.RuntimeVendorConfigView) {
 	m.Fly, m.Velos = nil, nil
 	switch s := v.Settings.Variant.(type) {
 	case api.RuntimeVendorSettingsFly:
-		m.Fly = &flySettingsModel{
+		m.Fly = []flySettingsModel{{
 			App:           types.StringValue(s.Value.App),
 			Image:         types.StringValue(s.Value.Image),
 			Region:        types.StringValue(s.Value.Region),
@@ -302,9 +310,9 @@ func (m *runtimeVendorModel) applyView(v api.RuntimeVendorConfigView) {
 			CPUs:          types.Int64Value(int64(s.Value.Cpus)),
 			MemoryMB:      types.Int64Value(int64(s.Value.MemoryMb)),
 			VolumeSizeGB:  types.Int64Value(int64(s.Value.VolumeSizeGb)),
-		}
+		}}
 	case api.RuntimeVendorSettingsVelos:
-		m.Velos = &velosSettingsModel{
+		m.Velos = []velosSettingsModel{{
 			ServerURL:     types.StringValue(s.Value.ServerURL),
 			Image:         types.StringValue(s.Value.Image),
 			RuntimeBin:    types.StringValue(s.Value.RuntimeBin),
@@ -312,7 +320,7 @@ func (m *runtimeVendorModel) applyView(v api.RuntimeVendorConfigView) {
 			CallbackURL:   types.StringValue(s.Value.CallbackURL),
 			CPU:           types.Int64Value(int64(s.Value.CPU)),
 			MemoryMB:      types.Int64Value(int64(s.Value.MemoryMb)),
-		}
+		}}
 	}
 }
 
