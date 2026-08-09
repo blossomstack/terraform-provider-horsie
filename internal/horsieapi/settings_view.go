@@ -4,11 +4,11 @@ package horsieapi
 
 // Full settings snapshot — returned by `GET /api/config` and after an update.
 type SettingsView struct {
-	Providers     []ProviderView `json:"providers"`
-	Models        []ModelView    `json:"models"`
-	Vendors       []VendorView   `json:"vendors"`
-	DefaultVendor string         `json:"defaultVendor"`
-	Info          ServerInfo     `json:"info"`
+	Providers            []ProviderView `json:"providers"`
+	Models               []ModelView    `json:"models"`
+	Vendors              []VendorView   `json:"vendors"`
+	DefaultRuntimeVendor string         `json:"defaultRuntimeVendor"`
+	Info                 ServerInfo     `json:"info"`
 	// Always false: every provider/model edit applies live. Retained for wire
 	// compatibility.
 	RestartRequired bool `json:"restartRequired"`
