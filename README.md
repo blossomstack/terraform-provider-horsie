@@ -92,6 +92,17 @@ make generate HORSIE_FLUORITE=/path/to/horsie/crates/models/fluorite
 
 Generated Go is expected to be byte-identical to `gofmt` output; `make generate` fails if it is not.
 
+## Registries
+
+`terraform` and `tofu` resolve the same source address through **different** registries, and publishing to one does not cover the other:
+
+| CLI | Resolves via |
+|---|---|
+| `terraform` | `registry.terraform.io` |
+| `tofu` | `registry.opentofu.org` |
+
+Writing `source = "registry.terraform.io/blossomstack/horsie"` does not help under OpenTofu — it rewrites the hostname to its own registry. See [RELEASING.md](RELEASING.md) for the setup and release process, including the signing-key constraints (RSA/DSA only; never remove a published key).
+
 ## Licence
 
 Apache-2.0 OR MIT, matching horsie.
