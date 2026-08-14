@@ -48,6 +48,18 @@ type ServerHookEventSubagentStop struct {
 
 func (ServerHookEventSubagentStop) isServerHookEventVariant() {}
 
+type ServerHookEventPreCompact struct {
+	Value PreCompactInput
+}
+
+func (ServerHookEventPreCompact) isServerHookEventVariant() {}
+
+type ServerHookEventPostCompact struct {
+	Value PostCompactInput
+}
+
+func (ServerHookEventPostCompact) isServerHookEventVariant() {}
+
 // An event the server initiates, carrying that event's input.
 //
 // Tool events are absent by construction: they run inline in the runtime with
@@ -93,6 +105,16 @@ func (u ServerHookEvent) MarshalJSON() ([]byte, error) {
 			Type  string            `json:"event"`
 			Value SubagentStopInput `json:"value"`
 		}{"SubagentStop", v.Value})
+	case ServerHookEventPreCompact:
+		return json.Marshal(struct {
+			Type  string          `json:"event"`
+			Value PreCompactInput `json:"value"`
+		}{"PreCompact", v.Value})
+	case ServerHookEventPostCompact:
+		return json.Marshal(struct {
+			Type  string           `json:"event"`
+			Value PostCompactInput `json:"value"`
+		}{"PostCompact", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: ServerHookEvent has no variant set")
 	default:
@@ -151,6 +173,20 @@ func (u *ServerHookEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = ServerHookEventSubagentStop{Value: v}
+		return nil
+	case "PreCompact":
+		var v PreCompactInput
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = ServerHookEventPreCompact{Value: v}
+		return nil
+	case "PostCompact":
+		var v PostCompactInput
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = ServerHookEventPostCompact{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown ServerHookEvent variant tag %q", envelope.Type)

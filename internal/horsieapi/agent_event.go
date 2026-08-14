@@ -102,6 +102,24 @@ type AgentEventRunComplete struct {
 
 func (AgentEventRunComplete) isAgentEventVariant() {}
 
+type AgentEventRunAborted struct {
+	Value RunAbortedEvent
+}
+
+func (AgentEventRunAborted) isAgentEventVariant() {}
+
+type AgentEventCompacted struct {
+	Value CompactedEvent
+}
+
+func (AgentEventCompacted) isAgentEventVariant() {}
+
+type AgentEventCompactionSkipped struct {
+	Value CompactionSkippedEvent
+}
+
+func (AgentEventCompactionSkipped) isAgentEventVariant() {}
+
 // All events emitted during agent execution.
 //
 // Flow per assistant turn:
@@ -112,7 +130,7 @@ func (AgentEventRunComplete) isAgentEventVariant() {}
 // ThinkingBlockStart → (ThinkingChunk | ThinkingSignatureChunk)* → ContentBlockStop
 // ToolCallStart      → ToolCallInputDelta*                     → ContentBlockStop
 // ToolExecuting → ToolComplete  (one pair per tool call)
-// RunComplete
+// RunComplete   (or RunAborted, if the run ended in an error instead)
 // AgentEvent is an adjacently tagged union: its JSON carries the variant name
 // in "type" and any payload in "value".
 type AgentEvent struct {
@@ -197,6 +215,21 @@ func (u AgentEvent) MarshalJSON() ([]byte, error) {
 			Type  string           `json:"type"`
 			Value RunCompleteEvent `json:"value"`
 		}{"RunComplete", v.Value})
+	case AgentEventRunAborted:
+		return json.Marshal(struct {
+			Type  string          `json:"type"`
+			Value RunAbortedEvent `json:"value"`
+		}{"RunAborted", v.Value})
+	case AgentEventCompacted:
+		return json.Marshal(struct {
+			Type  string         `json:"type"`
+			Value CompactedEvent `json:"value"`
+		}{"Compacted", v.Value})
+	case AgentEventCompactionSkipped:
+		return json.Marshal(struct {
+			Type  string                 `json:"type"`
+			Value CompactionSkippedEvent `json:"value"`
+		}{"CompactionSkipped", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: AgentEvent has no variant set")
 	default:
@@ -318,6 +351,27 @@ func (u *AgentEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = AgentEventRunComplete{Value: v}
+		return nil
+	case "RunAborted":
+		var v RunAbortedEvent
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = AgentEventRunAborted{Value: v}
+		return nil
+	case "Compacted":
+		var v CompactedEvent
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = AgentEventCompacted{Value: v}
+		return nil
+	case "CompactionSkipped":
+		var v CompactionSkippedEvent
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = AgentEventCompactionSkipped{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown AgentEvent variant tag %q", envelope.Type)

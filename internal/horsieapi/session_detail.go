@@ -3,11 +3,11 @@
 package horsieapi
 
 type SessionDetail struct {
-	ID        string             `json:"id"`
-	Name      *string            `json:"name,omitempty"`
-	Status    *SessionStatusKind `json:"status,omitempty"`
-	CreatedAt uint64             `json:"createdAt"`
-	LastError *string            `json:"lastError,omitempty"`
+	ID        string            `json:"id"`
+	Name      *string           `json:"name,omitempty"`
+	Status    SessionStatusKind `json:"status"`
+	CreatedAt uint64            `json:"createdAt"`
+	LastError *string           `json:"lastError,omitempty"`
 	// User-set key-value metadata (e.g. `group=<name>`). Empty when none.
 	Annotations []AnnotationEntry `json:"annotations"`
 	Model       string            `json:"model"`
@@ -34,12 +34,21 @@ type SessionDetail struct {
 	// numbers (and context size, which is never summed) are on the agent
 	// document instead.
 	UsageTotal UsageView `json:"usageTotal"`
-	// Every agent this session hosts: the main agent first, then its subagent
-	// tree. Each is addressable at `/sessions/:id/agents/:agent_id`.
+	// Every agent this session hosts, each addressable at
+	// `/sessions/:id/agents/:agent_id`. A conversation lists its main agent
+	// first, then its subagent tree. A workflow run has no main agent — it
+	// *is* its steps — so it lists one entry per execution in its run log,
+	// labelled with the step that ran.
 	Agents []SubAgentView `json:"agents"`
-	// The resource-preparation stage a turn is currently at, when one is
-	// spinning up. Live-only history: past stages are not replayable.
-	Progression *ProgressionEvent `json:"progression,omitempty"`
+	// The conversations forked out of this session, so one read tells a client
+	// everything the session hosts.
+	//
+	// Its own field rather than more entries in `agents`, because a fork is
+	// not a delegated task: it owes nobody a result and it never ends, so it
+	// has no end stamp for a `SubAgentView` to carry and no honest way to
+	// share the shape. The server keeps the two apart for the same reason —
+	// `ForkRoster` is deliberately not a `SubAgentTree`.
+	Forks []ForkView `json:"forks"`
 	// The workflow this session is a run of, if it is one. Decides which view
 	// the page renders: a run has a graph rather than a conversation.
 	Workflow *string `json:"workflow,omitempty"`

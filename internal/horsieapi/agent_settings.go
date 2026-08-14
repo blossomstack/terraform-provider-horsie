@@ -21,4 +21,18 @@ type AgentSettings struct {
 	// Cap on concurrently-active subagents in this session; absent → the
 	// server's built-in default (8).
 	MaxConcurrentSubagents *uint32 `json:"maxConcurrentSubagents,omitempty"`
+	// Standing instructions this session's agent runs under, added to the
+	// system prompt as its own section. Set from an agent preset, or directly
+	// here; absent → none.
+	Instructions *string `json:"instructions,omitempty"`
+	// Whether this session summarises older history into a compaction
+	// boundary once its context fills; absent → yes.
+	//
+	// A flag rather than a threshold: the share of the window at which
+	// compacting is worthwhile is a property of the model, not of the
+	// session, so it stays a server constant that can be retuned centrally
+	// instead of a number frozen into everyone's saved settings. Has no
+	// effect when the model's card declares no context window — there is
+	// then nothing to be a share of.
+	AutoCompact *bool `json:"autoCompact,omitempty"`
 }

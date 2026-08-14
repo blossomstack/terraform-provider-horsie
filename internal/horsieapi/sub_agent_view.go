@@ -3,11 +3,13 @@
 package horsieapi
 
 // One agent this session hosts. The main agent has `parent`/`label` absent
-// and `depth` 0; subagents carry their spawn metadata. `output` and the full
-// transcript live on the agent document and its history, not here.
+// and `depth` 0; subagents carry their spawn metadata; a workflow step is
+// labelled with the step it ran. `output` and the full transcript live on the
+// agent document and its history, not here.
 type SubAgentView struct {
 	ID string `json:"id"`
-	// Parent agent id; absent → the session's main agent.
+	// Parent agent id; absent → rooted on whatever this session's primary
+	// agent is: its main agent, or the step that spawned it.
 	Parent *string `json:"parent,omitempty"`
 	Label  *string `json:"label,omitempty"`
 	Depth  uint32  `json:"depth"`
@@ -15,12 +17,16 @@ type SubAgentView struct {
 	// spawned with one. Absent for the main agent and for a general-purpose
 	// subagent.
 	AgentType *string `json:"agentType,omitempty"`
-	// "running" | "completed" | "failed".
+	// What became of this agent: "provisioning" | "running" | "idle" |
+	// "awaiting_input" | "completed" | "failed" | "cancelled". A main agent
+	// reports its session's state and never *completes*; a subagent or a step
+	// runs to one of the three endings.
 	Status string  `json:"status"`
 	Error  *string `json:"error,omitempty"`
 	// When this agent was spawned and when it reached its current result.
-	// Zero when unrecorded — journaled before these were kept, or (for
-	// `ended_at_ms`) still running.
+	// Zero when unrecorded — journaled before these were kept, still running,
+	// or a main agent, which nothing spawned and which is as old as the
+	// session's own `created_at`.
 	SpawnedAtMs uint64 `json:"spawnedAtMs"`
 	EndedAtMs   uint64 `json:"endedAtMs"`
 }

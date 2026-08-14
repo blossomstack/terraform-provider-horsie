@@ -18,11 +18,11 @@ type AgentResultCompleted struct {
 
 func (AgentResultCompleted) isAgentResultVariant() {}
 
-type AgentResultHandoff struct {
-	Value HandoffOutput
+type AgentResultStopped struct {
+	Value StoppedOutput
 }
 
-func (AgentResultHandoff) isAgentResultVariant() {}
+func (AgentResultStopped) isAgentResultVariant() {}
 
 // The outcome of an agent run
 // AgentResult is an adjacently tagged union: its JSON carries the variant name
@@ -39,11 +39,11 @@ func (u AgentResult) MarshalJSON() ([]byte, error) {
 			Type  string          `json:"type"`
 			Value CompletedOutput `json:"value"`
 		}{"Completed", v.Value})
-	case AgentResultHandoff:
+	case AgentResultStopped:
 		return json.Marshal(struct {
 			Type  string        `json:"type"`
-			Value HandoffOutput `json:"value"`
-		}{"Handoff", v.Value})
+			Value StoppedOutput `json:"value"`
+		}{"Stopped", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: AgentResult has no variant set")
 	default:
@@ -68,12 +68,12 @@ func (u *AgentResult) UnmarshalJSON(data []byte) error {
 		}
 		u.Variant = AgentResultCompleted{Value: v}
 		return nil
-	case "Handoff":
-		var v HandoffOutput
+	case "Stopped":
+		var v StoppedOutput
 		if err := json.Unmarshal(envelope.Value, &v); err != nil {
 			return err
 		}
-		u.Variant = AgentResultHandoff{Value: v}
+		u.Variant = AgentResultStopped{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown AgentResult variant tag %q", envelope.Type)

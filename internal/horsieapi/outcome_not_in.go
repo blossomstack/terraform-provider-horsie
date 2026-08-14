@@ -2,6 +2,6 @@
 
 package horsieapi
 
-type CreateGroupRequest struct {
-	Name string `json:"name"`
+type OutcomeNotIn struct {
+	Values []string `json:"values"`
 }

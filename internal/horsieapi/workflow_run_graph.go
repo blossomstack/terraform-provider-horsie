@@ -6,8 +6,7 @@ package horsieapi
 type WorkflowRunGraph struct {
 	// The workflow this run was started from. The definition is snapshotted
 	// at run creation, so editing or deleting it does not change this run.
-	Workflow string         `json:"workflow"`
-	Status   WorkflowStatus `json:"status"`
+	Workflow string `json:"workflow"`
 	// Index into the run log of the execution in flight.
 	Current *uint32   `json:"current,omitempty"`
 	Start   string    `json:"start"`

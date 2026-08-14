@@ -3,13 +3,13 @@
 page_title: "horsie_workflow Resource - horsie"
 subcategory: ""
 description: |-
-  A named graph of steps, each an agent preset with a fixed prompt, wired together by conditions over the step's structured output.
+  A named graph of steps, each an agent preset with a fixed prompt, wired together by the outcome each step reports.
   A definition is only the graph. Where a run happens is a property of the invocation, not of the saved configuration, so nothing here names a runtime or a checkout — a step's preset supplies the model, MCP servers and memory spaces, and the run supplies the rest.
 ---
 
 # horsie_workflow (Resource)
 
-A named graph of steps, each an agent preset with a fixed prompt, wired together by conditions over the step's structured output.
+A named graph of steps, each an agent preset with a fixed prompt, wired together by the outcome each step reports.
 
 A definition is only the graph. Where a run happens is a property of the invocation, not of the saved configuration, so nothing here names a runtime or a checkout — a step's preset supplies the model, MCP servers and memory spaces, and the run supplies the rest.
 
@@ -26,19 +26,25 @@ resource "horsie_workflow" "review" {
     agent  = horsie_agent.reviewer.name
     prompt = "Review the change below and decide whether it is ready to merge."
 
-    output_schema = jsonencode({
-      type = "object"
-      properties = {
-        approved = { type = "boolean" }
-        notes    = { type = "string" }
-      }
-      required = ["approved"]
-    })
+    outcome {
+      value       = "approved"
+      description = "The change is ready to merge as it stands."
+    }
+    outcome {
+      value       = "changes_requested"
+      description = "Something has to change before this can merge."
+    }
+
+    result_field {
+      name        = "blockers"
+      kind        = "StringList"
+      description = "What must change before this can merge. Empty when approved."
+    }
 
     # Order matters: the first matching transition wins, so the catch-all is last.
     transition {
-      to        = "fix"
-      condition = "!output.approved"
+      to              = "fix"
+      when_outcome_in = ["changes_requested"]
     }
     transition {
       to = "summarise"
@@ -48,7 +54,7 @@ resource "horsie_workflow" "review" {
   step {
     name           = "fix"
     agent          = horsie_agent.coder.name
-    prompt         = "Address the review notes below, then hand the change back for review."
+    prompt         = "Address the blockers below, then hand the change back for review."
     max_iterations = 40
 
     transition {
@@ -56,7 +62,7 @@ resource "horsie_workflow" "review" {
     }
   }
 
-  # A step with no transitions ends the run, carrying its output as the run's.
+  # A step with no transitions ends the run, carrying its result as the run's.
   step {
     name   = "summarise"
     agent  = horsie_agent.reviewer.name
@@ -96,14 +102,41 @@ Required:
 
 - `agent` (String) Name of the `horsie_agent` preset this step runs as. Reference the resource's `name` so Terraform orders the two correctly.
 - `name` (String) Step name, unique within the workflow, referenced by `start` and by transitions.
-- `prompt` (String) The step's instruction. Whatever the step is handed — the run's input for the start step, the previous step's output for every other — is appended below it under a header, so the prompt says what to do rather than restating the input.
+- `prompt` (String) The step's instruction. Whatever the step is handed — the run's input for the start step, the previous step's result for every other — is appended below it under a header, so the prompt says what to do rather than restating the input.
 
 Optional:
 
+- `interactive` (Boolean) Whether this step may stop and ask the person a question. Omit and the step has no `ask_user` tool at all, so it must decide for itself.
 - `max_iterations` (Number) Cap on agent-loop iterations for this step.
 - `max_retries` (Number) Retry budget for transient provider errors within this step.
-- `output_schema` (String) JSON Schema for the step's structured output, as a JSON string — write it with `jsonencode`. A step that has it finishes by calling the builtin terminal tool with conforming output. **Required when the step has any conditional transition**, since there would otherwise be nothing for the condition to read.
-- `transition` (Block List) A directed edge out of this step. **Order matters**: transitions are tried in the order written and the first match wins, so put the catch-all last. A step whose transitions all fail to match ends the run, carrying its output as the run's. (see [below for nested schema](#nestedblock--step--transition))
+- `outcome` (Block List) One value this step's `outcome` may take. Write none and the step reports `success` or `failure`.
+
+A step finishes by submitting a result carrying an `outcome` and a written `description`; transitions read the outcome and nothing else. (see [below for nested schema](#nestedblock--step--outcome))
+- `result_field` (Block List) One extra field this step's result carries, beyond the `outcome` and `description` every result already has. Transitions cannot read these — they are for the next step, which is handed them under the description. (see [below for nested schema](#nestedblock--step--result_field))
+- `transition` (Block List) A directed edge out of this step. **Order matters**: transitions are tried in the order written and the first match wins, so put the catch-all last. A step whose transitions all fail to match ends the run, carrying its result as the run's. (see [below for nested schema](#nestedblock--step--transition))
+
+<a id="nestedblock--step--outcome"></a>
+### Nested Schema for `step.outcome`
+
+Required:
+
+- `description` (String) What choosing this outcome means. Not decoration: it is what the model reads to pick between the values, and the only thing standing between "failure" meaning *the work failed* and meaning *I could not finish*.
+- `value` (String) The value itself, as a transition names it.
+
+
+<a id="nestedblock--step--result_field"></a>
+### Nested Schema for `step.result_field`
+
+Required:
+
+- `description` (String) What the field holds. Required: an undocumented field is one the model fills in by guessing.
+- `kind` (String) One of `String`, `Number`, `Boolean` or `StringList`.
+- `name` (String) Field name. `outcome` and `description` are taken — they are the two fields every result carries.
+
+Optional:
+
+- `required` (Boolean) Whether the step must always supply it. Omit for optional.
+
 
 <a id="nestedblock--step--transition"></a>
 ### Nested Schema for `step.transition`
@@ -114,7 +147,8 @@ Required:
 
 Optional:
 
-- `condition` (String) An expression over the producing step's structured output, bound to `output`, evaluating to a boolean — e.g. `output.approved`. Omit for an unconditional catch-all.
+- `when_outcome_in` (List of String) Take this edge when the step's outcome is one of these. Every value must be one the step declares — horsie refuses the workflow otherwise, because at run time a filter that matches nothing is indistinguishable from a step that meant to end the graph.
+- `when_outcome_not_in` (List of String) Take this edge when the step's outcome is none of these. The same rule applies: every value must be one the step declares.
 
 ## Import
 

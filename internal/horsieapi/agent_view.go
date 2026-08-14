@@ -5,8 +5,14 @@ package horsieapi
 // An agent preset as shown to clients.
 type AgentView struct {
 	// Slug; the id of record, used in API paths and CLI invocations.
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// What this preset is for, as shown in the roster. Never sent to the
+	// model — `instructions` is what the model reads.
 	Description string `json:"description"`
+	// Standing instructions this preset's agent runs under, added to the
+	// system prompt as its own section. Absent → the agent behaves exactly
+	// like an unpresetted one.
+	Instructions *string `json:"instructions,omitempty"`
 	// Configured model alias.
 	Model string `json:"model"`
 	// Selected plugin-bundle (skill) names.
@@ -17,6 +23,9 @@ type AgentView struct {
 	MemorySpaces []string `json:"memorySpaces"`
 	// Canonical thinking effort; absent → the model's configured default.
 	ThinkingEffort *string `json:"thinkingEffort,omitempty"`
+	// Whether sessions from this preset compact automatically once their
+	// context fills; absent → yes.
+	AutoCompact *bool `json:"autoCompact,omitempty"`
 	// Unix epoch seconds.
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
