@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"errors"
 
@@ -19,9 +20,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*agentResource)(nil)
-	_ resource.ResourceWithConfigure   = (*agentResource)(nil)
-	_ resource.ResourceWithImportState = (*agentResource)(nil)
+	_ resource.Resource                   = (*agentResource)(nil)
+	_ resource.ResourceWithConfigure      = (*agentResource)(nil)
+	_ resource.ResourceWithImportState    = (*agentResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*agentResource)(nil)
 )
 
 type agentResource struct{ client *client.Client }
@@ -32,11 +34,13 @@ func NewAgentResource() resource.Resource { return &agentResource{} }
 type agentModel struct {
 	Name           types.String `tfsdk:"name"`
 	Description    types.String `tfsdk:"description"`
+	Instructions   types.String `tfsdk:"instructions"`
 	Model          types.String `tfsdk:"model"`
 	Plugins        types.List   `tfsdk:"plugins"`
 	MCPServers     types.List   `tfsdk:"mcp_servers"`
 	MemorySpaces   types.List   `tfsdk:"memory_spaces"`
 	ThinkingEffort types.String `tfsdk:"thinking_effort"`
+	AutoCompact    types.Bool   `tfsdk:"auto_compact"`
 }
 
 func (r *agentResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -57,9 +61,17 @@ func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"description": schema.StringAttribute{
-				Optional:            true,
-				Computed:            true,
-				MarkdownDescription: "What this preset is for. Defaults to empty.",
+				Optional: true,
+				Computed: true,
+				MarkdownDescription: "What this preset is for, as shown in the roster. Never sent to the model — " +
+					"`instructions` is what the model reads. Defaults to empty.",
+			},
+			"instructions": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "Standing instructions this preset's agent runs under, added to its system " +
+					"prompt as its own section. Omit and the agent behaves exactly like an unpresetted one.\n\n" +
+					"They ride in every one of this agent's prompts, so horsie caps their length; leading and " +
+					"trailing whitespace is trimmed off, which a heredoc will have plenty of.",
 			},
 			"model": schema.StringAttribute{
 				Required:            true,
@@ -84,6 +96,15 @@ func (r *agentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				Optional: true,
 				MarkdownDescription: "Canonical thinking effort. Omit to take the model's configured default; " +
 					"it must be one the model offers.",
+			},
+			"auto_compact": schema.BoolAttribute{
+				Optional: true,
+				MarkdownDescription: "Whether sessions from this preset summarise older history into a compaction " +
+					"boundary once their context fills. Omit for horsie's default, which is to compact.\n\n" +
+					"A flag rather than a threshold: the share of the window at which compacting is worthwhile " +
+					"is a property of the model, so it stays a server constant that can be retuned centrally " +
+					"instead of a number frozen into this configuration. It has no effect on a model whose card " +
+					"declares no context window — there is then nothing to be a share of.",
 			},
 		},
 	}
@@ -134,17 +155,70 @@ func (r *agentResource) input(ctx context.Context, m agentModel) api.AgentPreset
 		v := m.ThinkingEffort.ValueString()
 		in.ThinkingEffort = &v
 	}
+	// Send what horsie would store anyway. It trims instructions on save, and a
+	// value that trims to nothing is no instructions at all.
+	if !m.Instructions.IsNull() && !m.Instructions.IsUnknown() {
+		if v := strings.TrimSpace(m.Instructions.ValueString()); v != "" {
+			in.Instructions = &v
+		}
+	}
+	if !m.AutoCompact.IsNull() {
+		v := m.AutoCompact.ValueBool()
+		in.AutoCompact = &v
+	}
 	return in
+}
+
+// instructionsString renders what the server holds, preferring the string the
+// configuration used when the two are the same instructions.
+//
+// horsie trims on save, so a byte comparison would report drift on every plan
+// over nothing but the whitespace a heredoc leaves behind. A genuine edit made
+// outside Terraform still wins, or it would be invisible.
+func instructionsString(configured types.String, served *string) types.String {
+	if configured.IsNull() || configured.IsUnknown() {
+		return optString(served)
+	}
+	var s string
+	if served != nil {
+		s = *served
+	}
+	if strings.TrimSpace(configured.ValueString()) == s {
+		return configured
+	}
+	return optString(served)
 }
 
 func applyAgent(ctx context.Context, m *agentModel, v *api.AgentView) {
 	m.Name = types.StringValue(v.Name)
 	m.Description = types.StringValue(v.Description)
+	m.Instructions = instructionsString(m.Instructions, v.Instructions)
 	m.Model = types.StringValue(v.Model)
 	m.Plugins = listFromStrings(ctx, v.Plugins)
 	m.MCPServers = listFromStrings(ctx, v.MCPServers)
 	m.MemorySpaces = listFromStrings(ctx, v.MemorySpaces)
 	m.ThinkingEffort = optString(v.ThinkingEffort)
+	m.AutoCompact = optBool(v.AutoCompact)
+}
+
+// ValidateConfig refuses instructions that are blank without being absent.
+//
+// horsie stores a value that trims to nothing as no instructions at all, so
+// state would have to either hold a string the server does not have or diverge
+// from the configuration on every plan. Neither is worth having for a value
+// nobody means to write.
+func (r *agentResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var m agentModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !m.Instructions.IsNull() && !m.Instructions.IsUnknown() &&
+		strings.TrimSpace(m.Instructions.ValueString()) == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("instructions"), "Blank instructions",
+			"horsie stores instructions that are only whitespace as none at all. Omit the argument "+
+				"instead — the agent then behaves exactly like an unpresetted one.")
+	}
 }
 
 func (r *agentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

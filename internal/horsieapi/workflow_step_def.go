@@ -8,15 +8,21 @@ type WorkflowStepDef struct {
 	// Agent preset this step runs as.
 	Agent string `json:"agent"`
 	// The step's instruction. Whatever the step is handed — the run's input
-	// for the start step, the previous step's output for every other — is
+	// for the start step, the previous step's result for every other — is
 	// appended below it under a header.
 	Prompt string `json:"prompt"`
-	// JSON Schema for the step's structured output. When present, the step
-	// finishes by calling the builtin terminal tool with output conforming to
-	// it. Required when the step has any conditional transition, since there
-	// would otherwise be nothing for the condition to read.
-	OutputSchema *any `json:"outputSchema,omitempty"`
-	// Outgoing transitions, evaluated against this step's output.
+	// The values this step's `outcome` may take. Absent → success / failure.
+	//
+	// A step finishes by calling `submit_result`, whose input schema is
+	// compiled from these plus `fields` and a required markdown `description`.
+	// Transitions read `outcome` and nothing else.
+	Outcomes *[]StepOutcome `json:"outcomes,omitempty"`
+	// Extra result fields, beyond `outcome` and `description`.
+	Fields *[]StepField `json:"fields,omitempty"`
+	// Whether this step may ask the person a question. Absent → false, and
+	// the step has no `ask_user` tool at all.
+	Interactive *bool `json:"interactive,omitempty"`
+	// Outgoing transitions, matched against this step's `outcome`.
 	Transitions *[]WorkflowTransition `json:"transitions,omitempty"`
 	// Cap on agent-loop iterations for this step.
 	MaxIterations *uint32 `json:"maxIterations,omitempty"`

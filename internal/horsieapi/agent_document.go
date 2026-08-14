@@ -6,13 +6,17 @@ package horsieapi
 // `task`, `output`, `error`) are absent for a session's main agent.
 type AgentDocument struct {
 	ID string `json:"id"`
-	// Parent agent id; absent → the session's main agent.
+	// Parent agent id; absent → rooted on whatever this session's primary
+	// agent is: its main agent, or the step that spawned it.
 	Parent *string `json:"parent,omitempty"`
-	Label  *string `json:"label,omitempty"`
+	// A subagent's label, or the step a workflow agent ran.
+	Label *string `json:"label,omitempty"`
 	// The task a subagent was spawned to do.
 	Task  *string `json:"task,omitempty"`
 	Depth uint32  `json:"depth"`
-	// "running" | "completed" | "failed".
+	// What became of this agent. The same vocabulary the session's roster
+	// speaks: "provisioning" | "running" | "idle" | "awaiting_input" |
+	// "completed" | "failed" | "cancelled".
 	Status string  `json:"status"`
 	Output *string `json:"output,omitempty"`
 	Error  *string `json:"error,omitempty"`

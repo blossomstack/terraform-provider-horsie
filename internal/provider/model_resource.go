@@ -183,6 +183,21 @@ func optString(v *string) types.String {
 	return types.StringValue(*v)
 }
 
+func optBool(v *bool) types.Bool {
+	if v == nil {
+		return types.BoolNull()
+	}
+	return types.BoolValue(*v)
+}
+
+// deref reads an optional wire list, where absent and empty mean the same thing.
+func deref[T any](v *[]T) []T {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
 func (r *modelResource) write(ctx context.Context, plan *modelModel) error {
 	in, err := r.input(ctx, *plan)
 	if err != nil {

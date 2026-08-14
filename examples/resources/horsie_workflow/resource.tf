@@ -8,19 +8,25 @@ resource "horsie_workflow" "review" {
     agent  = horsie_agent.reviewer.name
     prompt = "Review the change below and decide whether it is ready to merge."
 
-    output_schema = jsonencode({
-      type = "object"
-      properties = {
-        approved = { type = "boolean" }
-        notes    = { type = "string" }
-      }
-      required = ["approved"]
-    })
+    outcome {
+      value       = "approved"
+      description = "The change is ready to merge as it stands."
+    }
+    outcome {
+      value       = "changes_requested"
+      description = "Something has to change before this can merge."
+    }
+
+    result_field {
+      name        = "blockers"
+      kind        = "StringList"
+      description = "What must change before this can merge. Empty when approved."
+    }
 
     # Order matters: the first matching transition wins, so the catch-all is last.
     transition {
-      to        = "fix"
-      condition = "!output.approved"
+      to              = "fix"
+      when_outcome_in = ["changes_requested"]
     }
     transition {
       to = "summarise"
@@ -30,7 +36,7 @@ resource "horsie_workflow" "review" {
   step {
     name           = "fix"
     agent          = horsie_agent.coder.name
-    prompt         = "Address the review notes below, then hand the change back for review."
+    prompt         = "Address the blockers below, then hand the change back for review."
     max_iterations = 40
 
     transition {
@@ -38,7 +44,7 @@ resource "horsie_workflow" "review" {
     }
   }
 
-  # A step with no transitions ends the run, carrying its output as the run's.
+  # A step with no transitions ends the run, carrying its result as the run's.
   step {
     name   = "summarise"
     agent  = horsie_agent.reviewer.name

@@ -14,6 +14,9 @@ const (
 	SessionStatusKindIdle          SessionStatusKind = "Idle"
 	SessionStatusKindRunning       SessionStatusKind = "Running"
 	SessionStatusKindAwaitingInput SessionStatusKind = "AwaitingInput"
+	// A workflow run completed with no error. Not terminal: a retry or a new
+	// message moves it back to `Running`.
+	SessionStatusKindFinished      SessionStatusKind = "Finished"
 	SessionStatusKindFailed        SessionStatusKind = "Failed"
 	SessionStatusKindUnrecoverable SessionStatusKind = "Unrecoverable"
 )

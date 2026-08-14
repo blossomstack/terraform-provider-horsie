@@ -5,8 +5,10 @@ package horsieapi
 // One edge of the run graph: a transition of the definition, plus which
 // executions took it. `traversals` is empty for an edge never taken.
 type RunEdge struct {
-	From       string   `json:"from"`
-	To         string   `json:"to"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	// The filter this edge is taken for, rendered for display — `outcome in
+	// [p0, p1]`. Absent on a catch-all.
 	Condition  *string  `json:"condition,omitempty"`
 	Traversals []uint32 `json:"traversals"`
 }

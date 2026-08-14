@@ -30,13 +30,23 @@ type AgentLogBodyLifecycle struct {
 
 func (AgentLogBodyLifecycle) isAgentLogBodyVariant() {}
 
+type AgentLogBodyCompaction struct {
+	Value CompactionEntry
+}
+
+func (AgentLogBodyCompaction) isAgentLogBodyVariant() {}
+
 // What one log entry carries.
 //
-// Three arms, not eight: `AgentState::prompt_messages` is a match over this
+// Four arms, not a dozen: `AgentState::prompt_messages` is a match over this
 // union, and a single `Lifecycle` arm mapping to nothing covers every
 // lifecycle variant that will ever exist. Flattening the variants in here
 // would make provider isolation a per-variant obligation a future addition
 // could forget.
+//
+// `Compaction` is the one arm whose meaning depends on where it sits: the
+// newest one decides where the prompt starts, and every older one is history
+// that shows the model nothing. See [`CompactionEntry`].
 // AgentLogBody is an adjacently tagged union: its JSON carries the variant name
 // in "type" and any payload in "value".
 type AgentLogBody struct {
@@ -61,6 +71,11 @@ func (u AgentLogBody) MarshalJSON() ([]byte, error) {
 			Type  string         `json:"type"`
 			Value LifecycleEvent `json:"value"`
 		}{"Lifecycle", v.Value})
+	case AgentLogBodyCompaction:
+		return json.Marshal(struct {
+			Type  string          `json:"type"`
+			Value CompactionEntry `json:"value"`
+		}{"Compaction", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: AgentLogBody has no variant set")
 	default:
@@ -98,6 +113,13 @@ func (u *AgentLogBody) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = AgentLogBodyLifecycle{Value: v}
+		return nil
+	case "Compaction":
+		var v CompactionEntry
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = AgentLogBodyCompaction{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown AgentLogBody variant tag %q", envelope.Type)

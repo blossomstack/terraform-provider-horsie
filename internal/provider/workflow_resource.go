@@ -1,16 +1,16 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/blossomstack/terraform-provider-horsie/internal/client"
@@ -18,9 +18,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*workflowResource)(nil)
-	_ resource.ResourceWithConfigure   = (*workflowResource)(nil)
-	_ resource.ResourceWithImportState = (*workflowResource)(nil)
+	_ resource.Resource                   = (*workflowResource)(nil)
+	_ resource.ResourceWithConfigure      = (*workflowResource)(nil)
+	_ resource.ResourceWithImportState    = (*workflowResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*workflowResource)(nil)
 )
 
 type workflowResource struct{ client *client.Client }
@@ -29,17 +30,34 @@ type workflowResource struct{ client *client.Client }
 func NewWorkflowResource() resource.Resource { return &workflowResource{} }
 
 type workflowTransitionModel struct {
-	To        types.String `tfsdk:"to"`
-	Condition types.String `tfsdk:"condition"`
+	To types.String `tfsdk:"to"`
+	// The two operators of the wire union, flattened. Exactly one may be set;
+	// neither is the catch-all.
+	WhenOutcomeIn    types.List `tfsdk:"when_outcome_in"`
+	WhenOutcomeNotIn types.List `tfsdk:"when_outcome_not_in"`
+}
+
+type workflowOutcomeModel struct {
+	Value       types.String `tfsdk:"value"`
+	Description types.String `tfsdk:"description"`
+}
+
+type workflowFieldModel struct {
+	Name        types.String `tfsdk:"name"`
+	Kind        types.String `tfsdk:"kind"`
+	Description types.String `tfsdk:"description"`
+	Required    types.Bool   `tfsdk:"required"`
 }
 
 type workflowStepModel struct {
 	Name          types.String              `tfsdk:"name"`
 	Agent         types.String              `tfsdk:"agent"`
 	Prompt        types.String              `tfsdk:"prompt"`
-	OutputSchema  types.String              `tfsdk:"output_schema"`
+	Interactive   types.Bool                `tfsdk:"interactive"`
 	MaxIterations types.Int64               `tfsdk:"max_iterations"`
 	MaxRetries    types.Int64               `tfsdk:"max_retries"`
+	Outcomes      []workflowOutcomeModel    `tfsdk:"outcome"`
+	Fields        []workflowFieldModel      `tfsdk:"result_field"`
 	Transitions   []workflowTransitionModel `tfsdk:"transition"`
 }
 
@@ -60,7 +78,7 @@ func (r *workflowResource) Metadata(_ context.Context, req resource.MetadataRequ
 func (r *workflowResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A named graph of steps, each an agent preset with a fixed prompt, wired " +
-			"together by conditions over the step's structured output.\n\n" +
+			"together by the outcome each step reports.\n\n" +
 			"A definition is only the graph. Where a run happens is a property of the invocation, not " +
 			"of the saved configuration, so nothing here names a runtime or a checkout — a step's " +
 			"preset supplies the model, MCP servers and memory spaces, and the run supplies the rest.",
@@ -114,15 +132,13 @@ func (r *workflowResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 						"prompt": schema.StringAttribute{
 							Required: true,
 							MarkdownDescription: "The step's instruction. Whatever the step is handed — the run's input " +
-								"for the start step, the previous step's output for every other — is appended below it " +
+								"for the start step, the previous step's result for every other — is appended below it " +
 								"under a header, so the prompt says what to do rather than restating the input.",
 						},
-						"output_schema": schema.StringAttribute{
+						"interactive": schema.BoolAttribute{
 							Optional: true,
-							MarkdownDescription: "JSON Schema for the step's structured output, as a JSON string — " +
-								"write it with `jsonencode`. A step that has it finishes by calling the builtin " +
-								"terminal tool with conforming output. **Required when the step has any conditional " +
-								"transition**, since there would otherwise be nothing for the condition to read.",
+							MarkdownDescription: "Whether this step may stop and ask the person a question. Omit and the " +
+								"step has no `ask_user` tool at all, so it must decide for itself.",
 						},
 						"max_iterations": schema.Int64Attribute{
 							Optional:            true,
@@ -134,21 +150,82 @@ func (r *workflowResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 						},
 					},
 					Blocks: map[string]schema.Block{
+						"outcome": schema.ListNestedBlock{
+							MarkdownDescription: "One value this step's `outcome` may take. Write none and the step " +
+								"reports `success` or `failure`.\n\n" +
+								"A step finishes by submitting a result carrying an `outcome` and a written " +
+								"`description`; transitions read the outcome and nothing else.",
+							NestedObject: schema.NestedBlockObject{
+								Attributes: map[string]schema.Attribute{
+									"value": schema.StringAttribute{
+										Required:            true,
+										MarkdownDescription: "The value itself, as a transition names it.",
+									},
+									"description": schema.StringAttribute{
+										Required: true,
+										MarkdownDescription: "What choosing this outcome means. Not decoration: it is what the " +
+											"model reads to pick between the values, and the only thing standing between " +
+											"\"failure\" meaning *the work failed* and meaning *I could not finish*.",
+									},
+								},
+							},
+						},
+						"result_field": schema.ListNestedBlock{
+							MarkdownDescription: "One extra field this step's result carries, beyond the `outcome` and " +
+								"`description` every result already has. Transitions cannot read these — they are " +
+								"for the next step, which is handed them under the description.",
+							NestedObject: schema.NestedBlockObject{
+								Attributes: map[string]schema.Attribute{
+									"name": schema.StringAttribute{
+										Required: true,
+										MarkdownDescription: "Field name. `outcome` and `description` are taken — they are the two " +
+											"fields every result carries.",
+									},
+									"kind": schema.StringAttribute{
+										Required:            true,
+										MarkdownDescription: "One of `String`, `Number`, `Boolean` or `StringList`.",
+										Validators: []validator.String{stringvalidator.OneOf(
+											string(api.StepFieldTypeString),
+											string(api.StepFieldTypeNumber),
+											string(api.StepFieldTypeBoolean),
+											string(api.StepFieldTypeStringList),
+										)},
+									},
+									"description": schema.StringAttribute{
+										Required: true,
+										MarkdownDescription: "What the field holds. Required: an undocumented field is one the " +
+											"model fills in by guessing.",
+									},
+									"required": schema.BoolAttribute{
+										Optional:            true,
+										MarkdownDescription: "Whether the step must always supply it. Omit for optional.",
+									},
+								},
+							},
+						},
 						"transition": schema.ListNestedBlock{
 							MarkdownDescription: "A directed edge out of this step. **Order matters**: transitions are " +
 								"tried in the order written and the first match wins, so put the catch-all last. " +
-								"A step whose transitions all fail to match ends the run, carrying its output as the run's.",
+								"A step whose transitions all fail to match ends the run, carrying its result as the run's.",
 							NestedObject: schema.NestedBlockObject{
 								Attributes: map[string]schema.Attribute{
 									"to": schema.StringAttribute{
 										Required:            true,
 										MarkdownDescription: "Name of the step to go to.",
 									},
-									"condition": schema.StringAttribute{
-										Optional: true,
-										MarkdownDescription: "An expression over the producing step's structured output, " +
-											"bound to `output`, evaluating to a boolean — e.g. `output.approved`. " +
-											"Omit for an unconditional catch-all.",
+									"when_outcome_in": schema.ListAttribute{
+										Optional:    true,
+										ElementType: types.StringType,
+										MarkdownDescription: "Take this edge when the step's outcome is one of these. Every value " +
+											"must be one the step declares — horsie refuses the workflow otherwise, because " +
+											"at run time a filter that matches nothing is indistinguishable from a step that " +
+											"meant to end the graph.",
+									},
+									"when_outcome_not_in": schema.ListAttribute{
+										Optional:    true,
+										ElementType: types.StringType,
+										MarkdownDescription: "Take this edge when the step's outcome is none of these. The same " +
+											"rule applies: every value must be one the step declares.",
 									},
 								},
 							},
@@ -173,10 +250,61 @@ func (r *workflowResource) Configure(_ context.Context, req resource.ConfigureRe
 	r.client = c
 }
 
-// toWorkflowInput builds the request body, failing on a step whose
-// output_schema is not JSON rather than letting horsie reject it as a 422 that
-// does not say which step.
-func toWorkflowInput(m workflowModel) (api.WorkflowInput, error) {
+// ValidateConfig turns the outcome filter's rules into plan-time diagnostics.
+//
+// The wire form is a union, so a transition naming both operators cannot be
+// marshalled at all — without this it fails partway through an apply with
+// `fluorite: OutcomeFilter has no variant set` or a silently dropped operator,
+// neither of which names the transition at fault.
+func (r *workflowResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var m workflowModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	for si, s := range m.Steps {
+		for ti, t := range s.Transitions {
+			at := path.Root("step").AtListIndex(si).AtName("transition").AtListIndex(ti)
+			in, notIn := !t.WhenOutcomeIn.IsNull(), !t.WhenOutcomeNotIn.IsNull()
+			if in && notIn {
+				resp.Diagnostics.AddAttributeError(at, "Two outcome filters",
+					"A transition is gated one way or the other, so `when_outcome_in` and "+
+						"`when_outcome_not_in` cannot both be given. Write a second `transition` "+
+						"block if you need both edges.")
+				continue
+			}
+			// An empty list is not a catch-all — horsie refuses a filter that
+			// names no outcomes, because it can never match. Omit the argument
+			// entirely for the catch-all.
+			for _, l := range []types.List{t.WhenOutcomeIn, t.WhenOutcomeNotIn} {
+				if !l.IsNull() && !l.IsUnknown() && len(l.Elements()) == 0 {
+					resp.Diagnostics.AddAttributeError(at, "Outcome filter names no outcomes",
+						"An empty filter can never match, which is not the same as no filter. "+
+							"Omit both `when_outcome_in` and `when_outcome_not_in` for the catch-all.")
+				}
+			}
+		}
+	}
+}
+
+// when builds the wire union from whichever operator is set, or nil for a
+// catch-all.
+func (t workflowTransitionModel) when(ctx context.Context) (*api.OutcomeFilter, error) {
+	in, notIn := stringsFromList(ctx, t.WhenOutcomeIn), stringsFromList(ctx, t.WhenOutcomeNotIn)
+	switch {
+	case in != nil && notIn != nil:
+		return nil, fmt.Errorf("transition to %q sets both when_outcome_in and when_outcome_not_in, but an edge is gated one way or the other", t.To.ValueString())
+	case in != nil:
+		return &api.OutcomeFilter{Variant: api.OutcomeFilterIn{Value: api.OutcomeIn{Values: *in}}}, nil
+	case notIn != nil:
+		return &api.OutcomeFilter{Variant: api.OutcomeFilterNotIn{Value: api.OutcomeNotIn{Values: *notIn}}}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// toWorkflowInput builds the request body.
+func toWorkflowInput(ctx context.Context, m workflowModel) (api.WorkflowInput, error) {
 	in := api.WorkflowInput{
 		Name:  m.Name.ValueString(),
 		Start: m.Start.ValueString(),
@@ -197,12 +325,9 @@ func toWorkflowInput(m workflowModel) (api.WorkflowInput, error) {
 			Agent:  s.Agent.ValueString(),
 			Prompt: s.Prompt.ValueString(),
 		}
-		if !s.OutputSchema.IsNull() && !s.OutputSchema.IsUnknown() {
-			var decoded any
-			if err := json.Unmarshal([]byte(s.OutputSchema.ValueString()), &decoded); err != nil {
-				return in, fmt.Errorf("step %q: output_schema is not valid JSON: %w", step.Name, err)
-			}
-			step.OutputSchema = &decoded
+		if !s.Interactive.IsNull() {
+			v := s.Interactive.ValueBool()
+			step.Interactive = &v
 		}
 		if !s.MaxIterations.IsNull() {
 			v := uint32(s.MaxIterations.ValueInt64())
@@ -212,18 +337,44 @@ func toWorkflowInput(m workflowModel) (api.WorkflowInput, error) {
 			v := uint32(s.MaxRetries.ValueInt64())
 			step.MaxRetries = &v
 		}
-		// A terminal step writes no transition blocks at all, so absent and empty
-		// mean the same thing here; send absent, which is what the view answers
-		// with and therefore what keeps a second plan empty.
+		// Absent and empty mean the same thing for every one of these lists — a
+		// step declaring no outcomes reports success/failure, and a terminal step
+		// writes no transition blocks at all. Send absent, which is what the view
+		// answers with and therefore what keeps a second plan empty.
+		if len(s.Outcomes) > 0 {
+			outcomes := make([]api.StepOutcome, 0, len(s.Outcomes))
+			for _, o := range s.Outcomes {
+				outcomes = append(outcomes, api.StepOutcome{
+					Value:       o.Value.ValueString(),
+					Description: o.Description.ValueString(),
+				})
+			}
+			step.Outcomes = &outcomes
+		}
+		if len(s.Fields) > 0 {
+			fields := make([]api.StepField, 0, len(s.Fields))
+			for _, f := range s.Fields {
+				field := api.StepField{
+					Name:        f.Name.ValueString(),
+					Kind:        api.StepFieldType(f.Kind.ValueString()),
+					Description: f.Description.ValueString(),
+				}
+				if !f.Required.IsNull() {
+					v := f.Required.ValueBool()
+					field.Required = &v
+				}
+				fields = append(fields, field)
+			}
+			step.Fields = &fields
+		}
 		if len(s.Transitions) > 0 {
 			edges := make([]api.WorkflowTransition, 0, len(s.Transitions))
 			for _, t := range s.Transitions {
-				edge := api.WorkflowTransition{To: t.To.ValueString()}
-				if !t.Condition.IsNull() {
-					v := t.Condition.ValueString()
-					edge.Condition = &v
+				filter, err := t.when(ctx)
+				if err != nil {
+					return in, fmt.Errorf("step %q: %w", step.Name, err)
 				}
-				edges = append(edges, edge)
+				edges = append(edges, api.WorkflowTransition{To: t.To.ValueString(), When: filter})
 			}
 			step.Transitions = &edges
 		}
@@ -232,63 +383,27 @@ func toWorkflowInput(m workflowModel) (api.WorkflowInput, error) {
 	return in, nil
 }
 
-// sameJSON reports whether two JSON documents mean the same thing. Used to keep
-// the operator's own formatting of output_schema in state: horsie parses and
-// re-serialises it, so a byte comparison would report drift on every plan over
-// nothing but whitespace and key order.
-func sameJSON(configured string, encoded []byte) bool {
-	var a, b any
-	if err := json.Unmarshal([]byte(configured), &a); err != nil {
-		return false
+// whenModel splits the wire union back into the two flat arguments.
+func whenModel(ctx context.Context, f *api.OutcomeFilter) (types.List, types.List) {
+	null := types.ListNull(types.StringType)
+	if f == nil {
+		return null, null
 	}
-	if err := json.Unmarshal(encoded, &b); err != nil {
-		return false
+	switch v := f.Variant.(type) {
+	case api.OutcomeFilterIn:
+		return listFromStrings(ctx, v.Value.Values), null
+	case api.OutcomeFilterNotIn:
+		return null, listFromStrings(ctx, v.Value.Values)
+	default:
+		return null, null
 	}
-	x, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-	y, err := json.Marshal(b)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(x, y)
 }
 
-// outputSchemaString renders what the server holds, preferring the string the
-// configuration used when the two are the same document.
-func outputSchemaString(configured types.String, schema *any) types.String {
-	if schema == nil {
-		return types.StringNull()
-	}
-	encoded, err := json.Marshal(*schema)
-	if err != nil {
-		// Unreachable for anything that arrived as JSON, but silently dropping
-		// the schema would look like the server forgot it.
-		return types.StringValue(fmt.Sprintf("<unencodable: %v>", err))
-	}
-	if !configured.IsNull() && !configured.IsUnknown() && sameJSON(configured.ValueString(), encoded) {
-		return configured
-	}
-	return types.StringValue(string(encoded))
-}
-
-func applyWorkflow(m *workflowModel, v *api.WorkflowView) {
-	// The configured schema strings, by step name, so a refresh keeps the
-	// operator's formatting where the document has not actually changed.
-	configured := map[string]types.String{}
-	for _, s := range m.Steps {
-		configured[s.Name.ValueString()] = s.OutputSchema
-	}
-
+func applyWorkflow(ctx context.Context, m *workflowModel, v *api.WorkflowView) {
 	m.Name = types.StringValue(v.Name)
 	m.Description = types.StringValue(v.Description)
 	m.Start = types.StringValue(v.Start)
-	if v.MaxSteps != nil {
-		m.MaxSteps = types.Int64Value(int64(*v.MaxSteps))
-	} else {
-		m.MaxSteps = types.Int64Null()
-	}
+	m.MaxSteps = optInt64(v.MaxSteps)
 	m.CreatedAt = types.StringValue(v.CreatedAt)
 	m.UpdatedAt = types.StringValue(v.UpdatedAt)
 
@@ -298,17 +413,31 @@ func applyWorkflow(m *workflowModel, v *api.WorkflowView) {
 			Name:          types.StringValue(s.Name),
 			Agent:         types.StringValue(s.Agent),
 			Prompt:        types.StringValue(s.Prompt),
-			OutputSchema:  outputSchemaString(configured[s.Name], s.OutputSchema),
+			Interactive:   optBool(s.Interactive),
 			MaxIterations: optInt64(s.MaxIterations),
 			MaxRetries:    optInt64(s.MaxRetries),
 		}
-		if s.Transitions != nil {
-			for _, t := range *s.Transitions {
-				step.Transitions = append(step.Transitions, workflowTransitionModel{
-					To:        types.StringValue(t.To),
-					Condition: optString(t.Condition),
-				})
-			}
+		for _, o := range deref(s.Outcomes) {
+			step.Outcomes = append(step.Outcomes, workflowOutcomeModel{
+				Value:       types.StringValue(o.Value),
+				Description: types.StringValue(o.Description),
+			})
+		}
+		for _, f := range deref(s.Fields) {
+			step.Fields = append(step.Fields, workflowFieldModel{
+				Name:        types.StringValue(f.Name),
+				Kind:        types.StringValue(string(f.Kind)),
+				Description: types.StringValue(f.Description),
+				Required:    optBool(f.Required),
+			})
+		}
+		for _, t := range deref(s.Transitions) {
+			in, notIn := whenModel(ctx, t.When)
+			step.Transitions = append(step.Transitions, workflowTransitionModel{
+				To:               types.StringValue(t.To),
+				WhenOutcomeIn:    in,
+				WhenOutcomeNotIn: notIn,
+			})
 		}
 		m.Steps = append(m.Steps, step)
 	}
@@ -320,7 +449,7 @@ func (r *workflowResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	in, err := toWorkflowInput(plan)
+	in, err := toWorkflowInput(ctx, plan)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid workflow", err.Error())
 		return
@@ -330,7 +459,7 @@ func (r *workflowResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Could not create workflow", err.Error())
 		return
 	}
-	applyWorkflow(&plan, view)
+	applyWorkflow(ctx, &plan, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -349,7 +478,7 @@ func (r *workflowResource) Read(ctx context.Context, req resource.ReadRequest, r
 		resp.Diagnostics.AddError("Could not read workflow", err.Error())
 		return
 	}
-	applyWorkflow(&state, view)
+	applyWorkflow(ctx, &state, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -359,7 +488,7 @@ func (r *workflowResource) Update(ctx context.Context, req resource.UpdateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	in, err := toWorkflowInput(plan)
+	in, err := toWorkflowInput(ctx, plan)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid workflow", err.Error())
 		return
@@ -369,7 +498,7 @@ func (r *workflowResource) Update(ctx context.Context, req resource.UpdateReques
 		resp.Diagnostics.AddError("Could not update workflow", err.Error())
 		return
 	}
-	applyWorkflow(&plan, view)
+	applyWorkflow(ctx, &plan, view)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

@@ -23,6 +23,12 @@ resource "horsie_agent" "reviewer" {
 
   memory_spaces = [horsie_memory_space.notes.name]
   plugins       = ["code-review"]
+
+  # Standing instructions ride in every prompt this preset's agent sends.
+  instructions = <<-EOT
+    Review for correctness first and style last. Cite every finding as
+    file:line, and say plainly when a change is fine as it stands.
+  EOT
 }
 ```
 
@@ -36,7 +42,13 @@ resource "horsie_agent" "reviewer" {
 
 ### Optional
 
-- `description` (String) What this preset is for. Defaults to empty.
+- `auto_compact` (Boolean) Whether sessions from this preset summarise older history into a compaction boundary once their context fills. Omit for horsie's default, which is to compact.
+
+A flag rather than a threshold: the share of the window at which compacting is worthwhile is a property of the model, so it stays a server constant that can be retuned centrally instead of a number frozen into this configuration. It has no effect on a model whose card declares no context window — there is then nothing to be a share of.
+- `description` (String) What this preset is for, as shown in the roster. Never sent to the model — `instructions` is what the model reads. Defaults to empty.
+- `instructions` (String) Standing instructions this preset's agent runs under, added to its system prompt as its own section. Omit and the agent behaves exactly like an unpresetted one.
+
+They ride in every one of this agent's prompts, so horsie caps their length; leading and trailing whitespace is trimmed off, which a heredoc will have plenty of.
 - `mcp_servers` (List of String) Names of the MCP servers this preset enables.
 - `memory_spaces` (List of String) `horsie_memory_space` names the agent may read and write.
 - `plugins` (List of String) Skill bundles available to sessions from this preset.

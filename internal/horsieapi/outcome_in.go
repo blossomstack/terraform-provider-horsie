@@ -2,5 +2,6 @@
 
 package horsieapi
 
-type RunningStatus struct {
+type OutcomeIn struct {
+	Values []string `json:"values"`
 }

@@ -54,6 +54,12 @@ type LifecycleEventSubAgent struct {
 
 func (LifecycleEventSubAgent) isLifecycleEventVariant() {}
 
+type LifecycleEventForked struct {
+	Value ForkLifecycle
+}
+
+func (LifecycleEventForked) isLifecycleEventVariant() {}
+
 type LifecycleEventStep struct {
 	Value StepLifecycle
 }
@@ -71,6 +77,12 @@ type LifecycleEventSessionFailed struct {
 }
 
 func (LifecycleEventSessionFailed) isLifecycleEventVariant() {}
+
+type LifecycleEventCompactionSkipped struct {
+	Value CompactionSkippedLifecycle
+}
+
+func (LifecycleEventCompactionSkipped) isLifecycleEventVariant() {}
 
 // Something that happened to the session, recorded in the log of the agent it
 // concerns.
@@ -122,6 +134,11 @@ func (u LifecycleEvent) MarshalJSON() ([]byte, error) {
 			Type  string            `json:"kind"`
 			Value SubAgentLifecycle `json:"value"`
 		}{"SubAgent", v.Value})
+	case LifecycleEventForked:
+		return json.Marshal(struct {
+			Type  string        `json:"kind"`
+			Value ForkLifecycle `json:"value"`
+		}{"Forked", v.Value})
 	case LifecycleEventStep:
 		return json.Marshal(struct {
 			Type  string        `json:"kind"`
@@ -137,6 +154,11 @@ func (u LifecycleEvent) MarshalJSON() ([]byte, error) {
 			Type  string                 `json:"kind"`
 			Value SessionFailedLifecycle `json:"value"`
 		}{"SessionFailed", v.Value})
+	case LifecycleEventCompactionSkipped:
+		return json.Marshal(struct {
+			Type  string                     `json:"kind"`
+			Value CompactionSkippedLifecycle `json:"value"`
+		}{"CompactionSkipped", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: LifecycleEvent has no variant set")
 	default:
@@ -203,6 +225,13 @@ func (u *LifecycleEvent) UnmarshalJSON(data []byte) error {
 		}
 		u.Variant = LifecycleEventSubAgent{Value: v}
 		return nil
+	case "Forked":
+		var v ForkLifecycle
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = LifecycleEventForked{Value: v}
+		return nil
 	case "Step":
 		var v StepLifecycle
 		if err := json.Unmarshal(envelope.Value, &v); err != nil {
@@ -223,6 +252,13 @@ func (u *LifecycleEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = LifecycleEventSessionFailed{Value: v}
+		return nil
+	case "CompactionSkipped":
+		var v CompactionSkippedLifecycle
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = LifecycleEventCompactionSkipped{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown LifecycleEvent variant tag %q", envelope.Type)

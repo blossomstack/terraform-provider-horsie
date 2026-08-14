@@ -24,6 +24,12 @@ type GlobalSessionEventTitleChanged struct {
 
 func (GlobalSessionEventTitleChanged) isGlobalSessionEventVariant() {}
 
+type GlobalSessionEventForksChanged struct {
+	Value GlobalSessionForksEvent
+}
+
+func (GlobalSessionEventForksChanged) isGlobalSessionEventVariant() {}
+
 // One frame on the global `/api/events` stream (live session-list updates).
 // GlobalSessionEvent is an adjacently tagged union: its JSON carries the variant name
 // in "type" and any payload in "value".
@@ -44,6 +50,11 @@ func (u GlobalSessionEvent) MarshalJSON() ([]byte, error) {
 			Type  string                  `json:"type"`
 			Value GlobalSessionTitleEvent `json:"value"`
 		}{"TitleChanged", v.Value})
+	case GlobalSessionEventForksChanged:
+		return json.Marshal(struct {
+			Type  string                  `json:"type"`
+			Value GlobalSessionForksEvent `json:"value"`
+		}{"ForksChanged", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: GlobalSessionEvent has no variant set")
 	default:
@@ -74,6 +85,13 @@ func (u *GlobalSessionEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = GlobalSessionEventTitleChanged{Value: v}
+		return nil
+	case "ForksChanged":
+		var v GlobalSessionForksEvent
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = GlobalSessionEventForksChanged{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown GlobalSessionEvent variant tag %q", envelope.Type)

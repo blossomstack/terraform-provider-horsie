@@ -108,6 +108,18 @@ type HookActionCwdChanged struct {
 
 func (HookActionCwdChanged) isHookActionVariant() {}
 
+type HookActionPreCompact struct {
+	Value PreCompactRecord
+}
+
+func (HookActionPreCompact) isHookActionVariant() {}
+
+type HookActionPostCompact struct {
+	Value PostCompactRecord
+}
+
+func (HookActionPostCompact) isHookActionVariant() {}
+
 // What one hook did, tagged by the event it ran for.
 //
 // Named `HookAction` rather than `HookEvent` because
@@ -202,6 +214,16 @@ func (u HookAction) MarshalJSON() ([]byte, error) {
 			Type  string           `json:"event"`
 			Value CwdChangedRecord `json:"value"`
 		}{"CwdChanged", v.Value})
+	case HookActionPreCompact:
+		return json.Marshal(struct {
+			Type  string           `json:"event"`
+			Value PreCompactRecord `json:"value"`
+		}{"PreCompact", v.Value})
+	case HookActionPostCompact:
+		return json.Marshal(struct {
+			Type  string            `json:"event"`
+			Value PostCompactRecord `json:"value"`
+		}{"PostCompact", v.Value})
 	case nil:
 		return nil, fmt.Errorf("fluorite: HookAction has no variant set")
 	default:
@@ -330,6 +352,20 @@ func (u *HookAction) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		u.Variant = HookActionCwdChanged{Value: v}
+		return nil
+	case "PreCompact":
+		var v PreCompactRecord
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = HookActionPreCompact{Value: v}
+		return nil
+	case "PostCompact":
+		var v PostCompactRecord
+		if err := json.Unmarshal(envelope.Value, &v); err != nil {
+			return err
+		}
+		u.Variant = HookActionPostCompact{Value: v}
 		return nil
 	default:
 		return fmt.Errorf("fluorite: unknown HookAction variant tag %q", envelope.Type)

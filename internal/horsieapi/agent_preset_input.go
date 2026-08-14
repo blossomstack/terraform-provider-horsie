@@ -11,9 +11,13 @@ package horsieapi
 type AgentPresetInput struct {
 	Name           string    `json:"name"`
 	Description    *string   `json:"description,omitempty"`
+	Instructions   *string   `json:"instructions,omitempty"`
 	Model          string    `json:"model"`
 	Plugins        *[]string `json:"plugins,omitempty"`
 	MCPServers     *[]string `json:"mcpServers,omitempty"`
 	MemorySpaces   *[]string `json:"memorySpaces,omitempty"`
 	ThinkingEffort *string   `json:"thinkingEffort,omitempty"`
+	// Seeds `AgentSettings.auto_compact` for sessions created from this
+	// preset; absent → yes.
+	AutoCompact *bool `json:"autoCompact,omitempty"`
 }
